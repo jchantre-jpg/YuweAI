@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AVI · Chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="scene-gradient" aria-hidden="true"></div>
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo-circle"><span>AVI</span></div>
+        <div class="brand-text">
+          <strong>Chat AVI</strong>
+          <small>Acompañamiento conversacional Nasa Yuwe</small>
+        </div>
+      </div>
+      <nav class="topbar-nav">
+        <a class="nav-link" href="/index.html">Inicio</a>
+        <a class="nav-link nav-primary" href="/chat.html">Chat</a>
+        <a class="nav-link" href="/diccionario.html">Diccionario</a>
+        <a class="nav-link" href="/actividades.html">Actividades</a>
+      </nav>
+    </header>
+
+    <main class="page">
+      <section class="section">
+        <h2>Módulo 1 · Chat con AVI</h2>
+        <div class="split-layout">
+          <aside class="card side-panel">
+            <h3>Modo de uso</h3>
+            <div class="mode-list">
+              <button class="mode-chip is-active" data-mode="estudiante">Estudiante</button>
+              <button class="mode-chip" data-mode="docente">Docente</button>
+              <button class="mode-chip" data-mode="explorar">Exploración libre</button>
+            </div>
+            <h4>Atajos</h4>
+            <div class="quick-grid">
+              <button class="quick-chip" data-quick="saludo">Practicar saludos</button>
+              <button class="quick-chip" data-quick="vocabulario">Vocabulario básico</button>
+              <button class="quick-chip" data-quick="actividad">Sugerir actividad</button>
+              <button class="quick-chip" data-quick="docente">Idea para docente</button>
+            </div>
+          </aside>
+
+          <section class="card">
+            <div id="chatMessages" class="chat-messages"></div>
+            <form id="chatForm" class="chat-input-area">
+              <textarea id="query" rows="1" placeholder="Escribe tu mensaje para AVI..."></textarea>
+              <div class="chat-actions">
+                <button type="button" id="clearChat" class="btn btn-soft">Limpiar</button>
+                <button type="submit" class="btn btn-primary">Enviar</button>
+              </div>
+            </form>
+            <div id="status" class="status"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="card">
+          <h3>Respuesta y contexto recuperado</h3>
+          <div id="answer" class="answer">Aún no hay respuesta.</div>
+          <div id="contexts" class="contexts"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>AVI Nasa Yuwe · Chat pedagógico con RAG</p>
+    </footer>
+    <script src="/chat.js"></script>
+  </body>
+</html>

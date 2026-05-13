@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AVI · Diccionario</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="scene-gradient" aria-hidden="true"></div>
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo-circle"><span>AVI</span></div>
+        <div class="brand-text">
+          <strong>Diccionario Interactivo</strong>
+          <small>Consulta por categorías de aprendizaje</small>
+        </div>
+      </div>
+      <nav class="topbar-nav">
+        <a class="nav-link" href="/index.html">Inicio</a>
+        <a class="nav-link" href="/chat.html">Chat</a>
+        <a class="nav-link nav-primary" href="/diccionario.html">Diccionario</a>
+        <a class="nav-link" href="/actividades.html">Actividades</a>
+      </nav>
+    </header>
+
+    <main class="page">
+      <section class="section">
+        <h2>Módulo 2 · Diccionario interactivo</h2>
+        <div class="card">
+          <span class="pill">Experiencia visual enriquecida</span>
+          <p>
+            Selecciona una categoría para consultar vocabulario en Español y Nasa Yuwe
+            con trazabilidad de fuente e imágenes de uso libre acordes al término.
+          </p>
+          <div class="lesson-controls">
+            <select id="categorySelect"></select>
+            <button id="lessonBtn" class="btn btn-primary">Cargar vocabulario</button>
+          </div>
+          <div id="status" class="status"></div>
+          <div id="lesson" class="lesson-grid"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>AVI Nasa Yuwe · Diccionario por categorías</p>
+    </footer>
+    <script src="/diccionario.js"></script>
+  </body>
+</html>

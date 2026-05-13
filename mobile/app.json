@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "AVI Nasa Yuwe",
+    "slug": "avi-nasa-yuwe",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "AVI puede usar el microfono para practicar conversacion y reconocimiento de voz dentro de la app web.",
+        "NSCameraUsageDescription": "Opcional para funciones de perfil o adjuntos si las activas en la plataforma."
+      }
+    },
+    "android": {
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "extra": {
+      "apiBase": "http://192.168.43.243:8090",
+      "webAppUrl": "http://192.168.43.243:8090"
+    }
+  }
+}

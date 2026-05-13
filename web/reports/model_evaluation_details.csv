@@ -1,0 +1,430 @@
+evaluation_type,expected_id,query,expected_nasa_yuwe,top_id,top_record_type,top_category,exact_top1,category_top1,coherence_ok
+lexical_translation,LEX-00001,Como se dice Cero en nasa yuwe?,Mea,LEX-00001,lexico,numeros,True,True,True
+lexical_translation,LEX-00011,Como se dice Diez en nasa yuwe?,Kseba,LEX-00011,lexico,numeros,True,True,True
+lexical_translation,LEX-00021,Como se dice Veinte en nasa yuwe?,Eba,LEX-00021,lexico,numeros,True,True,True
+lexical_translation,LEX-00031,Como se dice Trescientos en nasa yuwe?,Tekan,LEX-00031,lexico,numeros,True,True,True
+lexical_translation,LEX-00041,Como se dice Cuatro mil en nasa yuwe?,Papkab,LEX-00041,lexico,numeros,True,True,True
+lexical_translation,LEX-00051,Como se dice Cincuenta mil en nasa yuwe?,Taba pkab,LEX-00051,lexico,numeros,True,True,True
+lexical_translation,LEX-00061,Como se dice Azul en nasa yuwe?,Çemçem,LEX-00061,lexico,colores,True,True,True
+lexical_translation,LEX-00071,Como se dice horqueta para puerco en nasa yuwe?,cuchi tel,LEX-00071,lexico,animales,True,True,True
+lexical_translation,LEX-00081,Como se dice Espina o chuzo en nasa yuwe?,Çhüçh,LEX-00081,lexico,vocabulario_general,True,True,True
+lexical_translation,LEX-00091,Como se dice Noche en nasa yuwe?,Kus,LEX-00091,lexico,vocabulario_general,True,True,True
+lexical_translation,LEX-00101,Como se dice Redondo o circulo en nasa yuwe?,Taz,LEX-00101,lexico,vocabulario_general,True,True,True
+lexical_translation,LEX-00111,Como se dice Camino en nasa yuwe?,Zi’j,LEX-00111,lexico,vocabulario_general,True,True,True
+lexical_translation,LEX-00121,Como se dice Gorrion en nasa yuwe?,Çuh,LEX-00121,lexico,animales,True,True,True
+lexical_translation,LEX-00131,Como se dice Avispa en nasa yuwe?,Mezuw,LEX-00131,lexico,animales,True,True,True
+lexical_translation,LEX-00141,Como se dice Chicharra en nasa yuwe?,Yawee,LEX-00141,lexico,animales,True,True,True
+lexical_translation,LEX-00151,Como se dice Codorniz en nasa yuwe?,Fxi'l,LEX-00151,lexico,animales,True,True,True
+lexical_translation,LEX-00161,Como se dice Mono en nasa yuwe?,Miku,LEX-00161,lexico,animales,True,True,True
+lexical_translation,LEX-00171,Como se dice Aguila en nasa yuwe?,Uh,LEX-00171,lexico,animales,True,True,True
+lexical_translation,LEX-00181,Como se dice Ahijado en nasa yuwe?,Khaalu,LEX-00181,lexico,parentescos,True,True,True
+lexical_translation,LEX-00191,Como se dice Cuello en nasa yuwe?,Çikh,LEX-00191,lexico,cuerpo_humano,True,True,True
+lexical_translation,LEX-00201,Como se dice Garganta en nasa yuwe?,Pëçh,LEX-00201,lexico,cuerpo_humano,True,True,True
+lexical_translation,LEX-00211,Como se dice Boca en nasa yuwe?,Yuwe,LEX-00211,lexico,cuerpo_humano,True,True,True
+lexical_translation,LEX-00221,Como se dice Banano en nasa yuwe?,Knenxu iç,LEX-00221,lexico,frutas_verduras,True,True,True
+lexical_translation,LEX-00231,Como se dice Manzana en nasa yuwe?,Nxun wahwa,LEX-00231,lexico,frutas_verduras,True,True,True
+lexical_translation,LEX-00241,Como se dice Yerba mora en nasa yuwe?,Eçx äwä ziç,LEX-00241,lexico,plantas_medicinales,True,True,True
+lexical_translation,LEX-00251,Como se dice Verbena en nasa yuwe?,Belwëna,LEX-00251,lexico,plantas_medicinales,True,True,True
+lexical_translation,LEX-00261,Como se dice Chicha en nasa yuwe?,Beka,LEX-00261,lexico,alimentos,True,True,True
+lexical_translation,LEX-00271,Como se dice Maiz en nasa yuwe?,Kutxh,LEX-00271,lexico,alimentos,True,True,True
+lexical_translation,LEX-00281,Como se dice Hacha en nasa yuwe?,Am,LEX-00281,lexico,herramientas,True,True,True
+lexical_translation,LEX-00291,Como se dice Ahoyador en nasa yuwe?,Kafxi'jsa,LEX-00291,lexico,herramientas,True,True,True
+lexical_translation,LEX-00301,Como se dice Plato en nasa yuwe?,Biçx,LEX-00301,lexico,utiles_hogar,True,True,True
+lexical_translation,LEX-00311,Como se dice Espejo en nasa yuwe?,Thegnxi,LEX-00311,lexico,utiles_hogar,True,True,True
+lexical_translation,LEX-00321,Como se dice Arbol de cera en nasa yuwe?,Kwetufx,LEX-00321,lexico,ambientales,True,True,True
+lexical_translation,LEX-00331,Como se dice Arena en nasa yuwe?,Muse,LEX-00331,lexico,ambientales,True,True,True
+lexical_translation,LEX-00341,Como se dice Estrella en nasa yuwe?,A',LEX-00341,lexico,astros,True,True,True
+lexical_translation,LEX-00351,Como se dice Mesa en nasa yuwe?,Paatap,LEX-00351,lexico,muebles_inmuebles,True,True,True
+lexical_translation,LEX-00361,Como se dice Juliana en nasa yuwe?,Khlxana,LEX-00361,lexico,nombres_propios,True,True,True
+lexical_translation,LEX-00371,Como se dice Manuel en nasa yuwe?,Nwel,LEX-00371,lexico,nombres_propios,True,True,True
+lexical_translation,LEXR-00381,"Como se dice mientras, durante... en nasa yuwe?",-pcachja’,LEXR-00381,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00391,Como se dice hacer recordar en nasa yuwe?,"caayaqui’j-, caayaqui’ji-",LEXR-00391,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00401,Como se dice 1. hacer sonar (un instrumento) 2. crujir los dientes 3. alborotar en nasa yuwe?,"csuusu’j-, csuusu’ju-",LEXR-00401,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00411,Como se dice vena en nasa yuwe?,ee watse,LEXR-00411,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00421,Como se dice voltear para abajo en nasa yuwe?,leepja’-,LEXR-00421,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00431,Como se dice alargar en nasa yuwe?,nuyjyu’ja-,LEXR-00431,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00441,"Como se dice frotar, alisar en nasa yuwe?","plavi’j-, plavi’ji-",LEXR-00441,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00451,"Como se dice añadir, pegar con goma en nasa yuwe?","shquitya-, shquityáa-",LEXR-00451,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00461,"Como se dice separarse, alejarse, apartarse en nasa yuwe?","tyute-, tyutẽe-",LEXR-00461,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00471,Como se dice ser agredido en nasa yuwe?,ya’ptjãawe-,LEXR-00471,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00481,Como se dice hasta en nasa yuwe?,-pcach,LEXR-00481,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00491,"Como se dice mejorarse, recuperarse, fortalecerse, arreciar (lluvia) en nasa yuwe?",chjãchja-,LEXR-00491,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00501,Como se dice unidos en nasa yuwe?,cyterraj,LEXR-00501,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00511,Como se dice casco (del caballo) en nasa yuwe?,jimba cuse vyllill,LEXR-00511,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00521,Como se dice el pariente (de la misma raza) en nasa yuwe?,nwe’sh,LEXR-00521,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00531,Como se dice cara a cara en nasa yuwe?,puuty pdyi’p,LEXR-00531,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00541,Como se dice el zapato en nasa yuwe?,spaatu,LEXR-00541,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00551,Como se dice trenzar en nasa yuwe?,"tsũ’ta’j-, tsũ’ta’ja-",LEXR-00551,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00561,Como se dice tejido en nasa yuwe?,umnisa,LEXR-00561,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00571,"Como se dice pararse, ponerse de pie en nasa yuwe?",yuju-,LEXR-00571,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00581,Como se dice por en nasa yuwe?,-su,LEXR-00581,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00591,"Como se dice reflejar, centellear en nasa yuwe?",cjicji’cji’j,LEXR-00591,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00601,Como se dice perdiz en nasa yuwe?,fi’l,LEXR-00601,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00611,Como se dice rucio en nasa yuwe?,lusiu,LEXR-00611,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00621,Como se dice huésped en nasa yuwe?,paandeesa,LEXR-00621,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00631,Como se dice chistoso en nasa yuwe?,pjay,LEXR-00631,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00641,Como se dice resbalar en nasa yuwe?,sla’tyi-,LEXR-00641,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00651,Como se dice embotarse en nasa yuwe?,tutu-,LEXR-00651,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00661,"Como se dice la guasca, cuerda, soga, piola en nasa yuwe?",wes,LEXR-00661,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00671,Como se dice miel de caña en nasa yuwe?,ñusha mil,LEXR-00671,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00681,Como se dice la canoa (artesa para la chicha) en nasa yuwe?,canuwé,LEXR-00681,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00691,Como se dice la llama (de fuego) en nasa yuwe?,cleech,LEXR-00691,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00701,Como se dice la fiesta en nasa yuwe?,fiesta,LEXR-00701,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00711,"Como se dice estar encarcelado, detenido en nasa yuwe?","jytujnd-, jytundu-",LEXR-00711,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00721,"Como se dice defender, amparar, salvar en nasa yuwe?",nwe’we-,LEXR-00721,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00731,Como se dice eslabón (hierro para afilar o para sacar fuego del pedernal) en nasa yuwe?,shlaapún,LEXR-00731,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00741,"Como se dice ir, irse en nasa yuwe?","u’j-, u’jue-",LEXR-00741,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00751,"Como se dice poner adelante, arrear en nasa yuwe?","yatsqui’p-, yatsqui’pu-",LEXR-00751,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00761,Como se dice la visiones en nasa yuwe?,ĩcjwe’sh,LEXR-00761,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00771,Como se dice el cuerpo en nasa yuwe?,cacue (cuacue T),LEXR-00771,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00781,"Como se dice hacer atajar, mandar atajar en nasa yuwe?","cyuupu’j-, cyuupu’ju-",LEXR-00781,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00791,Como se dice bajar en nasa yuwe?,iicjẽe-,LEXR-00729,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-00801,Como se dice mata de durazno (árbol) en nasa yuwe?,lashnu tash,LEXR-00801,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00811,Como se dice guía en nasa yuwe?,pe’jna u’jsa,LEXR-00811,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00821,Como se dice que pelea en nasa yuwe?,puiisá,LEXR-00821,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00831,Como se dice la partera en nasa yuwe?,spaacysa,LEXR-03801,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-00841,Como se dice blandir (bastón) en nasa yuwe?,vyandu-,LEXR-00841,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00851,Como se dice la sala en nasa yuwe?,ñujne,LEXR-00851,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00861,"Como se dice revelar, mostrar en nasa yuwe?","caavya´j-, caavya’ja-",LEXR-00861,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00871,"Como se dice el res, el ganado (animal doméstico) en nasa yuwe?",cla,LEXR-00871,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00881,Como se dice cerca de lechero en nasa yuwe?,fychacha upj,LEXR-00881,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00891,Como se dice o...o en nasa yuwe?,ma’c yuu...ma’c yuu,LEXR-00891,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00901,Como se dice lavar la cara en nasa yuwe?,"pchjĩ’ch-, pchjĩ’chi",LEXR-00901,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00911,Como se dice vomitar en nasa yuwe?,"punga-, pungáa-",LEXR-00911,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00921,Como se dice la lombriz intestinal en nasa yuwe?,shã’we,LEXR-00921,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00931,"Como se dice la punta, cumbre en nasa yuwe?",vits,LEXR-00931,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00941,"Como se dice 1. dar, conceder; 2. saludar, dar la mano en nasa yuwe?","ũs-, ũsu-",LEXR-00941,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00951,Como se dice permitir vender en nasa yuwe?,"caatyweyu’j-, caatyweyu’ju-",LEXR-00951,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00961,Como se dice aburrirse en nasa yuwe?,"cuch-, cuchíi-",LEXR-00961,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00971,"Como se dice seguir rastro, oler en nasa yuwe?",imu’s-imu’su-,LEXR-00971,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00981,Como se dice invierno en nasa yuwe?,nus en,LEXR-00981,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-00991,Como se dice muela en nasa yuwe?,qui’tj wala,LEXR-00991,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01001,"Como se dice el choclo, mazorca de maíz tierno en nasa yuwe?",tsut,LEXR-01001,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01011,"Como se dice 1. uña (de persona); 2. dedo (medida, anchura de un dedo); 3. garra (de ave); 4. casco (de caballo); 5. pezuña (de animal) en nasa yuwe?",vyllill,LEXR-01011,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01021,Como se dice la acequia en nasa yuwe?,yu’waca,LEXR-01021,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01031,Como se dice el pelo del cuerpo en nasa yuwe?,cacue cjas,LEXR-01031,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01041,Como se dice el juez (oficial del cabildo) en nasa yuwe?,cjuẽs,LEXR-01041,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01051,Como se dice estregar en nasa yuwe?,"ja’ll-, ja’lli-",LEXR-01051,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01061,Como se dice los pantalones (de liencillo) en nasa yuwe?,much,LEXR-01061,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01071,Como se dice encargar en nasa yuwe?,paawe’we-,LEXR-01071,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01081,Como se dice encontrarse con otro (que viene del rumbo opuesto en nasa yuwe?,"pu’tjeng-, pu’tjengu-",LEXR-01081,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01091,Como se dice tener dificultades en nasa yuwe?,tjẽyte ñuste fi’nze-,LEXR-01091,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01101,Como se dice hiel en nasa yuwe?,wãjy,LEXR-01101,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01111,Como se dice anaco abierto en nasa yuwe?,atyj cupy,LEXR-01111,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01121,Como se dice arrancar en nasa yuwe?,chucuende-,LEXR-01121,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01131,Como se dice sabaleta en nasa yuwe?,cue quiwe wendy,LEXR-01131,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01141,Como se dice la mosca (insecto) en nasa yuwe?,fynej,LEXR-01141,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01151,"Como se dice montón, montículo en nasa yuwe?",muts,LEXR-01151,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01161,Como se dice bañarse en nasa yuwe?,"pẽw-, pẽwúu-",LEXR-01161,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01171,Como se dice el toro en nasa yuwe?,tulu,LEXR-01171,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01181,Como se dice sonsacar en nasa yuwe?,yu’tya-,LEXR-01181,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01191,Como se dice hacer calor en nasa yuwe?,acha yuu-,LEXR-01191,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01201,Como se dice hacer quitar en nasa yuwe?,"caaquiisu’j-, caaquiisu’ju-",LEXR-01201,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01211,Como se dice conejo en nasa yuwe?,cãjpy,LEX-00154,lexico,animales,False,False,True
+lexical_translation,LEXR-01221,Como se dice vestirse (dícese de la mujer) en nasa yuwe?,is-,LEXR-01221,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01231,Como se dice coger sin permiso en nasa yuwe?,"npach-, npaachíi-",LEXR-01231,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01241,"Como se dice hendir, abrir hendedura en nasa yuwe?",petsete- (petsate-),LEXR-01241,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01251,Como se dice amarillo en nasa yuwe?,shquiicy,LEX-00067,lexico,colores,False,False,True
+lexical_translation,LEXR-01261,Como se dice rata grande del monte (mamífero roedor) en nasa yuwe?,ulu’j,LEXR-01261,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01271,Como se dice el paludismo en nasa yuwe?,yaawee,LEXR-01271,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01281,Como se dice pegar con goma en nasa yuwe?,"cne’ta’j-, cne’ta’ja-",LEXR-01281,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01291,Como se dice tábano en nasa yuwe?,jimba apj,LEXR-01291,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01301,Como se dice el padrino en nasa yuwe?,neeney,LEXR-01301,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01311,Como se dice oler en nasa yuwe?,"puta-, putáa-",LEXR-01311,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01321,Como se dice la hoja de maíz en nasa yuwe?,shimb ets,LEXR-01321,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01331,"Como se dice conversar, charlar en nasa yuwe?",twẽeji-,LEXR-01331,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01341,Como se dice ser burlado en nasa yuwe?,ya’iweech-,LEXR-01341,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01351,"Como se dice el troje, granero en nasa yuwe?",ũ’ jyaw yat,LEXR-01351,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01361,Como se dice hablar contra otro en nasa yuwe?,atsewe’we,LEXR-01361,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01371,"Como se dice hacer servir, ocupar, utilizar, usar en nasa yuwe?",cseelpi’j-. cseelpi’ji-,LEXR-01371,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01381,Como se dice comer en nasa yuwe?,iiũ’-,LEXR-01381,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01391,Como se dice postrero en nasa yuwe?,nmejtewe’sh,LEXR-01391,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01401,Como se dice primo con primo o prima con prima en nasa yuwe?,pucacje pyacj,LEXR-01401,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01411,Como se dice algo templado (freno) en nasa yuwe?,spajndspajnde,LEXR-01411,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01421,Como se dice más corto en nasa yuwe?,tuwtuw,LEXR-01421,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01431,Como se dice la punta de la aguja en nasa yuwe?,ñunz vits,LEXR-01431,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01441,Como se dice la caldera en nasa yuwe?,calderu,LEXR-01441,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01451,Como se dice dos en nasa yuwe?,e’nz,LEX-00003,lexico,numeros,False,False,True
+lexical_translation,LEXR-01461,"Como se dice error, equivocación en nasa yuwe?",jyumbani,LEXR-01461,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01471,Como se dice arrodillarse en nasa yuwe?,peejyũcue-,LEXR-01471,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01481,Como se dice vertical en nasa yuwe?,quiitj,LEXR-01481,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01491,Como se dice cazador en nasa yuwe?,vicysa,LEXR-01491,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01501,"Como se dice el ají picante (planta, usada como condimento) en nasa yuwe?",ãwã pijts,LEXR-01501,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01511,Como se dice hacer gastar en nasa yuwe?,"caagastaĩ’j-, caagastaĩ’jji-",LEXR-01511,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01521,Como se dice el dedo en nasa yuwe?,cuse mush,LEXR-01521,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01531,Como se dice la llama en nasa yuwe?,ipy cleechi,LEXR-01531,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01541,"Como se dice el cuñado, la cuñada (entre los dos sexos) en nasa yuwe?",ntsu’wa,LEXR-01541,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01551,Como se dice la semana en nasa yuwe?,qui’su,LEXR-01551,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01561,Como se dice tigrillo en nasa yuwe?,tyiclli,LEXR-01561,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01571,Como se dice ser nombrado en nasa yuwe?,"ya’cysus-, ya’cysusu-",LEXR-01571,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01581,Como se dice vestido en nasa yuwe?,atjni,LEXR-01581,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01591,Como se dice el carate (especie de sarna) en nasa yuwe?,claatyi,LEXR-01591,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01601,Como se dice el huarango (árbol) en nasa yuwe?,mushclé,LEXR-01601,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01611,Como se dice el muchaco en nasa yuwe?,pitscuẽ,LEXR-01611,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01621,Como se dice calabazo (en forma embudo) en nasa yuwe?,tuca ĩts,LEXR-01621,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01631,Como se dice la trampa (con soga) en nasa yuwe?,yajcy,LEXR-01631,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01641,Como se dice macana en nasa yuwe?,acy,LEXR-01641,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01651,Como se dice descoser (varias costuras) en nasa yuwe?,catstende’,LEXR-01651,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01661,Como se dice comején en nasa yuwe?,fytũu chica,LEXR-01661,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01671,"Como se dice secretamente, en secreto en nasa yuwe?",paatste,LEXR-01671,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01681,Como se dice ayudar (por turno) en nasa yuwe?,"pu’chji’ch-, pu’chji’chji-",LEXR-01681,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01691,Como se dice muy cerca en nasa yuwe?,utyutya,LEXR-01691,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01701,Como se dice el filo en nasa yuwe?,zec,LEXR-01701,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01711,Como se dice mosquito (insecto) en nasa yuwe?,bus,LEXR-01711,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01721,"Como se dice quitar, despojar en nasa yuwe?","cusa’j-, cusa’ja-",LEXR-01721,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01731,Como se dice cuartilla en nasa yuwe?,jimba chinda pẽty,LEXR-01731,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01741,Como se dice hija menor en nasa yuwe?,niisa nuuchsa,LEXR-01741,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01751,Como se dice las tijeras en nasa yuwe?,pteenzú,LEXR-01751,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01761,Como se dice el puño en nasa yuwe?,tut,LEXR-01761,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01771,"Como se dice ser, llegar a ser en nasa yuwe?",yuu-,LEXR-01771,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01781,Como se dice 1. la madeja de lana escarmenada 2. la pluma en nasa yuwe?,cjas pjapj,LEXR-01781,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01791,Como se dice su en nasa yuwe?,i’cue’sh,LEXR-01791,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01801,"Como se dice lo mismo como, igual que en nasa yuwe?",npaa,LEXR-01801,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01811,Como se dice madrina con ahijado o ahijada en nasa yuwe?,pneejĩ’j,LEXR-01811,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01821,Como se dice hablar en voz alta en nasa yuwe?,sus we’we-,LEXR-01821,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01831,"Como se dice agradable, sabroso, saludable, bien (de salud) en nasa yuwe?","wẽt, wẽtcuẽ",LEXR-01831,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01841,Como se dice mascar coca en nasa yuwe?,ẽsh pe’tse-,LEXR-03900,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-01851,Como se dice lograr avisar en nasa yuwe?,"cpaapta’sh-, cpaapta’shi-",LEXR-01851,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01861,Como se dice portarse mal en nasa yuwe?,fiy yũu-,LEXR-01861,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01871,"Como se dice detener, retener en nasa yuwe?",newe- (neewe-),LEXR-01871,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01881,Como se dice siete en nasa yuwe?,siete,LEX-00008,lexico,numeros,False,False,True
+lexical_translation,LEXR-01891,Como se dice crecer en nasa yuwe?,waláa-,LEXR-01891,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01901,Como se dice andas (para llevar cadáveres) en nasa yuwe?,aandas,LEXR-01901,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01911,Como se dice la mazamorra en nasa yuwe?,cjash,LEXR-01911,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01921,Como se dice ¡Camine! en nasa yuwe?,"mejca, mejcawe",LEXR-01921,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01931,Como se dice el carrizo en nasa yuwe?,pel,LEXR-01931,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01941,Como se dice templar (varias cuerdas) en nasa yuwe?,spandende-,LEXR-01941,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01951,Como se dice pescar en nasa yuwe?,wendy uwe-,LEXR-01951,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01961,"Como se dice abiertamente, patente en nasa yuwe?",ãa-,LEXR-01961,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01971,Como se dice hacer regar en nasa yuwe?,"caacpũushi’j-, caacpũushi’ji-",LEXR-01971,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01981,Como se dice el jabón en nasa yuwe?,cpun,LEXR-01981,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-01991,"Como se dice tener, poseer, contener en nasa yuwe?","ji’pj-, ji’pju-",LEXR-01991,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02001,Como se dice chuzar (aprovechando ausencia del dueño) en nasa yuwe?,nyãja-,LEXR-02001,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02011,Como se dice envolver (repetidas veces) en nasa yuwe?,scandundu-,LEXR-02011,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02021,"Como se dice tocar, echar mano en nasa yuwe?","utsje-, utsjée-",LEXR-02021,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02031,Como se dice la piedra de moler en nasa yuwe?,ũ’cj cuet,LEXR-02031,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02041,"Como se dice alcanzar a tocar, lograr tocar en nasa yuwe?","cpaajya’ndy-, cpaajya’ndyi-",LEXR-02041,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02051,Como se dice aparar en nasa yuwe?,"paatje-, paatjée-",LEXR-02051,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02061,Como se dice hilar en nasa yuwe?,"pund-, pundúu-",LEXR-02061,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02071,Como se dice la lengua en nasa yuwe?,tjune,LEXR-02071,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02081,Como se dice persona despreciado en nasa yuwe?,yaatsesa,LEXR-02081,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02091,Como se dice amarillento en nasa yuwe?,atate lem,LEXR-02091,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02101,Como se dice la cama en nasa yuwe?,"deeni, deeni atũ (deeñi, deeñi atũ)",LEXR-02101,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02111,Como se dice la cadera en nasa yuwe?,jytund yaj,LEXR-02111,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02121,"Como se dice 1. grueso, robusto; 2. nota muy baja (música) en nasa yuwe?",pepy,LEXR-02121,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02131,Como se dice tabla en nasa yuwe?,tapla,LEXR-02131,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02141,"Como se dice la gargantilla, collar de cuentas en nasa yuwe?",wã’chja,LEXR-02141,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02151,Como se dice hacer barbacoa en nasa yuwe?,atũju’j-,LEXR-02151,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02161,Como se dice antepasados en nasa yuwe?,ju’ngtjẽ’jwe’sh,LEXR-02161,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02171,Como se dice dar paliza en nasa yuwe?,pãpa-,LEXR-02171,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02181,"Como se dice transparente, claro en nasa yuwe?",sneene,LEXR-02181,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02191,Como se dice 1. adelante; 2. primero en nasa yuwe?,yats-,LEXR-02191,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02201,Como se dice la uva silvestre en nasa yuwe?,camañún,LEXR-02201,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02211,"Como se dice flojo, poco apretado (tornillo, cuerda) en nasa yuwe?",lacy,LEXR-02211,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02221,Como se dice morder (culebra) en nasa yuwe?,pqui’se (T),LEXR-02221,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02231,Como se dice hacer ruido en nasa yuwe?,"sus-, susu-",LEXR-02231,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02241,Como se dice el oro (metal) en nasa yuwe?,vyuu bej,LEXR-02241,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02251,Como se dice hacer estanque en nasa yuwe?,"ĩicja’j-, ĩicja’ja-",LEXR-02251,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02261,Como se dice hacer reír en nasa yuwe?,"cshiica’j-, cshiica’ja-",LEXR-02261,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02271,Como se dice castellano (idioma) en nasa yuwe?,llinu,LEXR-02271,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02281,Como se dice el pus en nasa yuwe?,tucj,LEXR-02281,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02291,Como se dice arreglar un asunto en nasa yuwe?,yuwe pjeu’j-,LEXR-02291,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02301,Como se dice pocos en nasa yuwe?,cujmée,LEXR-02112,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-02311,"Como se dice la semilla (de plantas), la semilla (raza de animales) en nasa yuwe?",fiw,LEXR-02311,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02321,Como se dice la hija en nasa yuwe?,niisa,LEXR-02321,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02331,Como se dice reemplazo (en el cargo) en nasa yuwe?,pu’yacjsa,LEXR-02331,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02341,Como se dice algo que ha sido escogido en nasa yuwe?,tyjityjnisa,LEXR-02341,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02351,Como se dice el mensajero en nasa yuwe?,yuwe pta’shsa,LEXR-02351,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02361,Como se dice blancuzco en nasa yuwe?,chijmchijme,LEXR-02361,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02371,Como se dice la casa donde se celebra la fiesta en nasa yuwe?,fiesta yat,LEXR-02371,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02381,Como se dice ¡Déle! en nasa yuwe?,"mẽs, mẽswe",LEXR-02381,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02391,"Como se dice clavar, poner estaca en nasa yuwe?","quitj-, quitje-",LEXR-02391,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02401,Como se dice raspar en nasa yuwe?,tupinde-,LEXR-02401,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02411,Como se dice abuelo en nasa yuwe?,ĩishi,LEX-00185,lexico,parentescos,False,False,True
+lexical_translation,LEXR-02421,Como se dice la sarna en nasa yuwe?,"chandy, chandy wee",LEXR-02421,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02431,Como se dice grande (gente) en nasa yuwe?,majcy,LEXR-02431,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02441,"Como se dice sobra, sobrante en nasa yuwe?","quijya, quijyasá",LEXR-02441,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02451,Como se dice tamal de choclo en nasa yuwe?,tsut pullu,LEXR-02451,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02461,"Como se dice aclarar, ponerse claro en nasa yuwe?",afy-afi-,LEXR-02461,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02471,Como se dice hacer dañar en nasa yuwe?,"csuuwu’j-, csuuwu’ju-",LEXR-02471,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02481,Como se dice el comején (insecto) en nasa yuwe?,fytũu wes,LEXR-02481,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02491,Como se dice amontonar en nasa yuwe?,"muutsu’j-, muutsu’ju-",LEXR-02491,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02501,Como se dice estar desnivelado en nasa yuwe?,tjuja-,LEXR-02501,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02511,Como se dice liendre en nasa yuwe?,ẽs zits,LEXR-02511,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02521,Como se dice la roza (de selva virgen) en nasa yuwe?,chimby ej,LEXR-02521,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02531,Como se dice savia en nasa yuwe?,fytũu yu’,LEXR-02531,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02541,Como se dice endurecer en nasa yuwe?,"nuywejy-, nuyweji-",LEXR-02541,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02551,Como se dice disfrazarse (pintar la cara) en nasa yuwe?,taachin yuu-,LEXR-02551,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02561,Como se dice llegar de un viaje en nasa yuwe?,ĩcj-ĩcje-,LEXR-02561,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02571,Como se dice 1. untar 2. curtir (cuero) 3. desfibrar cabuya en nasa yuwe?,"cu’nd-, cu’ndu-",LEXR-02571,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02581,Como se dice acompañar en nasa yuwe?,pi’cyna u’j-,LEXR-02581,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02591,Como se dice el ratón (mamífero roedor) en nasa yuwe?,ujnza,LEXR-02591,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02601,Como se dice por acá en nasa yuwe?,aysu,LEXR-01776,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-02611,Como se dice arrugarse en nasa yuwe?,cwẽ’ndyi-,LEXR-01120,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-02621,Como se dice la estera en nasa yuwe?,mastela (T),LEXR-02621,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02631,Como se dice la rana (batracio) en nasa yuwe?,sap le’chue,LEXR-02631,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02641,Como se dice que ataja en nasa yuwe?,yupsá,LEXR-02641,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02651,Como se dice castaño en nasa yuwe?,bejbej tujme,LEXR-02607,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-02661,"Como se dice la cerbatana, bodoquera en nasa yuwe?",fytũupatj,LEXR-02661,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02671,"Como se dice lo que da sabor, condimento en nasa yuwe?",peetjenisa,LEXR-02671,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02681,Como se dice golpear (varias veces) en nasa yuwe?,uca’ca-,LEXR-02681,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02691,Como se dice echar (varias veces o varias cosas en nasa yuwe?,ambu’mbu-,LEXR-02691,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02701,"Como se dice carbón, brasa en nasa yuwe?",ipy chjã’chja,LEXR-02701,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02711,"Como se dice rajar, partir (con hacha) en nasa yuwe?","pets-, petsjúu- (pẽts-)",LEXR-02711,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02721,Como se dice coral (víbora) en nasa yuwe?,ul bite,LEXR-02721,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02731,Como se dice 1. caer encima de; 2. ser vencido en nasa yuwe?,ya’cach-,LEXR-02731,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02741,"Como se dice el calcañar, el talón en nasa yuwe?",chinda tã’sh,LEXR-02741,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02751,"Como se dice el niño, la niña en nasa yuwe?",le’chcuesa,LEXR-02751,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02761,"Como se dice el tamal, el bollo (envuelto de maíz) en nasa yuwe?",pullu,LEXR-02761,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02771,Como se dice mudo en nasa yuwe?,we’weya’ ãjasamée,LEXR-02771,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02781,Como se dice lana teñida en nasa yuwe?,cjas bite,LEXR-02781,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02791,Como se dice ser madrina en nasa yuwe?,neenjĩ’j yuju-,LEXR-02791,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02801,Como se dice poner queja en nasa yuwe?,yuwe cjicj-,LEXR-02801,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02811,"Como se dice esos, esas en nasa yuwe?",cyãawe’sh (tyãawe’sh),LEXR-02811,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02821,Como se dice asunto de terrenos en nasa yuwe?,quiwe yuwe,LEXR-02821,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02831,"Como se dice el abejorro, abejón (insecto) en nasa yuwe?",wãwã,LEXR-02831,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02841,Como se dice el corredor (de la casa) en nasa yuwe?,cneetul (T),LEXR-02841,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02851,Como se dice menudo en nasa yuwe?,mush,LEXR-02851,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02861,"Como se dice la cera (del oído), cerúmen en nasa yuwe?",tjũ’we chica,LEXR-02861,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02871,"Como se dice retirarse, retroceder en nasa yuwe?","ya’sca’j-, ya’sca’ja-",LEXR-02871,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02881,Como se dice especie de árbol en nasa yuwe?,calzec,LEXR-00398,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-02891,"Como se dice bromear, chancear en nasa yuwe?",shaacue we’we-,LEXR-02891,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02901,"Como se dice abeja, abejón en nasa yuwe?",wãwã,LEXR-02901,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02911,"Como se dice hacer ayudar, permitir ayudar en nasa yuwe?","caapu’chji’j-, caapu’chji’ji-(cpu’chji’j-)",LEXR-02911,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02921,Como se dice apuntar (un arma) en nasa yuwe?,"jypey-, jypeyi-",LEXR-02921,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02931,Como se dice la cobija (tejido en telar) en nasa yuwe?,plliisatu (pllist T),LEXR-02931,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02941,"Como se dice gris, pardo en nasa yuwe?",tujme,LEXR-02941,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02951,"Como se dice 1. el hombro, brazo 2. la brazada (medida en nasa yuwe?",cu’ta,LEXR-02951,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02961,Como se dice corto en nasa yuwe?,much,LEXR-01624,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-02971,Como se dice la taza en nasa yuwe?,tasa,LEXR-02971,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02981,"Como se dice motilón (árbol, con fruta comestible) en nasa yuwe?",capijnz,LEXR-02981,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-02991,Como se dice entrar brevemente en nasa yuwe?,ne’ca-,LEXR-02991,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03001,Como se dice el curíbano (planta medicinal) en nasa yuwe?,ulñiñ,LEXR-03001,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03011,Como se dice la roncha en nasa yuwe?,buta,LEXR-03011,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03021,Como se dice una persona vestida en nasa yuwe?,jyaatjsa,LEXR-03021,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03031,Como se dice sordo en nasa yuwe?,tjũ’we puuple,LEXR-03031,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03041,Como se dice empachar en nasa yuwe?,"cchiiwa’j-, cchiiwa’ja-",LEXR-03041,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03051,Como se dice la cabeza en nasa yuwe?,jycuet,LEXR-02307,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03061,"Como se dice amañarse, acostumbrarse en nasa yuwe?","styãj-, styãja-, styãa-",LEXR-03061,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03071,Como se dice llenar en nasa yuwe?,"yuuta, yuutáa-",LEXR-03071,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03081,Como se dice la vena en nasa yuwe?,ee watse,LEXR-03081,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03091,Como se dice alumbrar a otro en nasa yuwe?,peecjicj-,LEXR-03091,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03101,Como se dice hacer ver en nasa yuwe?,"caauyu’j-, caauyu’ju-",LEXR-03101,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03111,Como se dice rodear en nasa yuwe?,"cytandy-, cytandyíi-",LEXR-01523,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03121,Como se dice espiga de trigo en nasa yuwe?,scuutyj spiiga,LEXR-03121,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03131,Como se dice darle un ataque en nasa yuwe?,"caywẽchpa’ja’j-, caywẽchpa’ja’ja-",LEXR-03131,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03141,Como se dice tragar en nasa yuwe?,jycjẽe-,LEXR-03141,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03151,"Como se dice el teñidero (árbol, que se usa para teñir de negro) en nasa yuwe?",shal,LEXR-03151,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03161,"Como se dice regarse, desparramarse en nasa yuwe?",ũshi-,LEXR-03161,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03171,Como se dice frincir las cejas en nasa yuwe?,cue’nzu-(cue’nzhu-),LEXR-03171,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03181,Como se dice cuatro en nasa yuwe?,pajnz,LEX-00005,lexico,numeros,False,False,True
+lexical_translation,LEXR-03191,Como se dice hacer extraer en nasa yuwe?,"caacutyi’j-, caacutyi’ji-",LEXR-03191,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03201,Como se dice sacudirse en nasa yuwe?,jysaacuecue-,LEXR-03201,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03211,"Como se dice persuadir, hablar con cariño en nasa yuwe?",tywe’we-,LEXR-03211,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03221,Como se dice hacer endeudar en nasa yuwe?,"caayulu’j-, caayulu’ju-(cyulu’j-)",LEXR-03221,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03231,Como se dice callo en nasa yuwe?,iindeeweni,LEXR-03231,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03241,"Como se dice chorrear, escurrir en nasa yuwe?","sus-, susúu-",LEXR-03241,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03251,Como se dice enojarse en nasa yuwe?,"ũuscha-, ũuscháa-",LEXR-03251,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03261,"Como se dice el cangrejo, alacrán (arácnido) en nasa yuwe?",menz shã’py,LEXR-03261,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03271,Como se dice el poporo en nasa yuwe?,tu’j,LEXR-03271,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03281,Como se dice olla para guarapo en nasa yuwe?,beca mityj,LEXR-03281,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03291,Como se dice el suegro en nasa yuwe?,ncaacatjẽj,LEXR-01032,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03301,Como se dice columpiar en nasa yuwe?,"tsuvy-, tsuvíi-",LEXR-03301,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03311,Como se dice la guayaba (fruta) en nasa yuwe?,cpiinda,LEXR-03311,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03321,"Como se dice 1. rasgar, romper; 2. changuar, separar hebras (de cabuya o bejuco) en nasa yuwe?",stende-,LEXR-03321,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03331,Como se dice hacer lavar las manos en nasa yuwe?,"caacwecha’j-, caacwecha’ja-",LEXR-03331,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03341,Como se dice lavar (loza) en nasa yuwe?,"pcji’cj-, pcji’cji-",LEXR-03341,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03351,Como se dice la escopeta en nasa yuwe?,ũpatel,LEXR-03351,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03361,Como se dice caldo en nasa yuwe?,nenga yu’,LEXR-03361,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03371,Como se dice el ayuno en nasa yuwe?,yũunani,LEXR-03371,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03381,Como se dice reumatismo articular (enfermedad de los huesos) en nasa yuwe?,lel,LEXR-03381,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03391,Como se dice doblar en nasa yuwe?,"tpejng-, tpengu-",LEXR-03391,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03401,Como se dice tusa de maíz en nasa yuwe?,cutyj tymi,LEXR-03401,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03411,Como se dice bayo en nasa yuwe?,payu,LEXR-03411,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03421,"Como se dice bigote, barba en nasa yuwe?",yuwe cjas,LEXR-03421,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03431,"Como se dice echar humo, evaporar, quemar incienso en nasa yuwe?","cshi’ta’j-, cshi’ta’ja-",LEXR-03431,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03441,Como se dice (planta medicinal) en nasa yuwe?,shũulape (shũulepja),LEXR-00732,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03451,Como se dice por allí en nasa yuwe?,cysu,LEXR-03451,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03461,Como se dice la estera en nasa yuwe?,stela,LEXR-02621,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03471,"Como se dice dar a la hija en casamiento, permitir a la hija casarse en nasa yuwe?",caaimi’a’j-caaimi’aja-(cmi’a’j-),LEXR-03471,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03481,Como se dice plegar en nasa yuwe?,"sembu’j-, sembu’ju-",LEXR-03481,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03491,Como se dice ¡Fuera! (ahuyentando gallinas) en nasa yuwe?,¡uvy uvy!,LEXR-03491,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03501,"Como se dice medio, a medias, no enteramente en nasa yuwe?",dyi’-,LEXR-03501,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03511,"Como se dice el búho, la lechuza (ave) en nasa yuwe?",tyi’fy,LEXR-03511,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03521,"Como se dice 1. poner, inyectar; 2. nombrar en un puesto en nasa yuwe?","qui’p-, qui’pu-",LEXR-03521,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03531,Como se dice lucero en nasa yuwe?,ã’ wala,LEXR-03531,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03541,Como se dice ayer en nasa yuwe?,jũ’na,LEXR-03541,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03551,Como se dice el hielo en nasa yuwe?,yu’cuet,LEXR-03551,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03561,Como se dice echar una clueca en nasa yuwe?,"cã’pji’j-, cãpj’ji-",LEXR-03561,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03571,Como se dice hacer seña en nasa yuwe?,"quimbe’j-, quimbe’je-",LEXR-02805,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03581,Como se dice el muchilero (ave) en nasa yuwe?,ũtj,LEXR-03581,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03591,Como se dice toser en nasa yuwe?,pjãjã-,LEXR-03591,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03601,Como se dice el dedo cordial o de en medio en nasa yuwe?,cuse ũus,LEXR-03601,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03611,"Como se dice la mugre, contaminación en nasa yuwe?",pta’nz,LEXR-03611,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03621,Como se dice subir en nasa yuwe?,"cãj-, cãjã-",LEXR-00792,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03631,Como se dice dar vuelta en nasa yuwe?,ta’ngu-,LEXR-03631,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03641,Como se dice conejo (mamífero) en nasa yuwe?,cãjpy,LEXR-03641,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03651,"Como se dice prole, cría en nasa yuwe?",ya’luch,LEXR-03651,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03661,"Como se dice la abuela, bisabuela en nasa yuwe?",mama lula,LEXR-01666,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03671,Como se dice afta en nasa yuwe?,yuwe wã’jy,LEXR-03671,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03681,Como se dice hacer invierno en nasa yuwe?,"nusu-, nusúu-",LEXR-03681,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03691,Como se dice atemorizarse en nasa yuwe?,ũucj yajcy-,LEXR-03691,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03701,Como se dice 1. madurar; 2. envejecerse en nasa yuwe?,"tjẽ’j-, tjẽ’je-",LEXR-03701,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03711,Como se dice rezar en nasa yuwe?,"lisa-, lisáa-",LEXR-03711,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03721,"Como se dice el ají (planta, usada como condimento) en nasa yuwe?",ãwã,LEXR-03721,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03731,"Como se dice cansar, fatigar en nasa yuwe?","cwaatyi’j-, cwaatyi’ji-",LEXR-03731,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03741,Como se dice hacer derretir en nasa yuwe?,"caapquivi’j-, caapquivi’ji-",LEXR-03741,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03751,Como se dice purificarse en nasa yuwe?,"yaate-, yaatée",LEXR-03751,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03761,Como se dice despreciarse (mutuamente) en nasa yuwe?,puuty yaatse-,LEXR-03761,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03771,Como se dice hacer rezar en nasa yuwe?,"caalisa’j-, caalisa’ja-",LEXR-03771,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03781,Como se dice la señora (de raza blanca) en nasa yuwe?,u’sha,LEXR-01322,lexico,diccionario_general,False,True,True
+lexical_translation,LEXR-03791,Como se dice repetir (varias veces) en nasa yuwe?,peenana-,LEXR-03791,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03801,Como se dice la partera en nasa yuwe?,nasa spaacysa,LEXR-03801,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03811,Como se dice carrizo de guadua en nasa yuwe?,sllimum,LEXR-03811,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03821,Como se dice llevar consigo (a otra persona) en nasa yuwe?,"pe’j-, pe’je-",LEXR-03821,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03831,Como se dice teñir de negro en nasa yuwe?,"cjũchacj-, cjũchacje-",LEXR-03831,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03841,"Como se dice el abuelo, bisabuelo en nasa yuwe?",papa lul,LEXR-03841,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03851,Como se dice poner sobre el hombro en nasa yuwe?,"jypeecypacy-, jypeecypaqui-",LEXR-03851,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03861,Como se dice 1. dejar pasar (para abajo) 2. celebrar fiesta en nasa yuwe?,"caascjẽu’j-, caascjẽu’ju-",LEXR-03861,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03871,Como se dice emborracharse en nasa yuwe?,tũu-,LEXR-03871,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03881,"Como se dice preguntar, consultar a otro en nasa yuwe?","paapẽjy-, paapẽyĩ-",LEXR-03881,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03891,Como se dice puente de guadua en nasa yuwe?,mum wej,LEXR-03891,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03901,Como se dice el hombro en nasa yuwe?,cmbamb,LEXR-03901,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03911,"Como se dice defecar, cagar (animales) en nasa yuwe?","ũch-, ũchi-",LEXR-03911,lexico,diccionario_general,True,True,True
+lexical_translation,LEXR-03921,"Como se dice esperarse, ponerse espeso en nasa yuwe?",wata-,LEXR-03921,lexico,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00009,Quiero practicar un dialogo para aprender alimentos,Estudiante: ?C?mo se dice Choclo en Nasa Yuwe? AVI: Se dice Çuth.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00019,Quiero practicar un dialogo para aprender alimentos,Estudiante: ?C?mo se dice Sopa en Nasa Yuwe? AVI: Se dice Khasx.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00029,Quiero practicar un dialogo para aprender ambientales,Estudiante: ?C?mo se dice Arrayan en Nasa Yuwe? AVI: Se dice Çhï'te.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00039,Quiero practicar un dialogo para aprender ambientales,Estudiante: ?C?mo se dice Metal o hierro en Nasa Yuwe? AVI: Se dice Çaam.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00049,Quiero practicar un dialogo para aprender animales,Estudiante: ?C?mo se dice cerdo en Nasa Yuwe? AVI: Se dice cuchi.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00059,Quiero practicar un dialogo para aprender animales,Estudiante: ?C?mo se dice pecari en Nasa Yuwe? AVI: Se dice quiwe cuchi.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00069,Quiero practicar un dialogo para aprender animales,Estudiante: ?C?mo se dice Rana en Nasa Yuwe? AVI: Se dice Çuz.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00079,Quiero practicar un dialogo para aprender astros,Estudiante: ?C?mo se dice Sol en Nasa Yuwe? AVI: Se dice Sek.,DLG-00074,dialogo,astros,True,True,True
+pedagogical_dialogue,DLG-00089,Quiero practicar un dialogo para aprender colores,Estudiante: ?C?mo se dice Rojo en Nasa Yuwe? AVI: Se dice Beh.,DLG-00084,dialogo,colores,True,True,True
+pedagogical_dialogue,DLG-00099,Quiero practicar un dialogo para aprender colores,Estudiante: ?C?mo se dice Amarillo en Nasa Yuwe? AVI: Se dice Tçxkiy.,DLG-00084,dialogo,colores,True,True,True
+pedagogical_dialogue,DLG-00109,Quiero practicar un dialogo para aprender cuerpo_humano,Estudiante: ?C?mo se dice Seno en Nasa Yuwe? AVI: Se dice Çxu'çx.,DLG-00102,dialogo,cuerpo_humano,True,True,True
+pedagogical_dialogue,DLG-00119,Quiero practicar un dialogo para aprender cuerpo_humano,Estudiante: ?C?mo se dice Mano en Nasa Yuwe? AVI: Se dice Kuse.,DLG-00102,dialogo,cuerpo_humano,True,True,True
+pedagogical_dialogue,DLG-00129,Quiero practicar un dialogo para aprender diccionario_general,Estudiante: ?C?mo se dice la barbacoa (cama hecha de palos) en Nasa Yuwe? AVI: Se dice atũ.,DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00139,Quiero practicar un dialogo para aprender diccionario_general,Estudiante: ?C?mo se dice la papa en Nasa Yuwe? AVI: Se dice ca’ga.,DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00149,Quiero practicar un dialogo para aprender diccionario_general,Estudiante: ?C?mo se dice quemar repetidas veces en Nasa Yuwe? AVI: Se dice cambuumbu-(cambu´mbu-).,DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00159,Quiero practicar un dialogo para aprender diccionario_general,Estudiante: ?C?mo se dice (especie de árbol) en Nasa Yuwe? AVI: Se dice chictu’j.,DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00169,Quiero practicar un dialogo para aprender diccionario_general,"Estudiante: ?C?mo se dice bailar en Nasa Yuwe? AVI: Se dice cu’j-, cu’ju-.",DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00179,Quiero practicar un dialogo para aprender diccionario_general,Estudiante: ?C?mo se dice arco de noche en Nasa Yuwe? AVI: Se dice cytũus chijme.,DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00189,Quiero practicar un dialogo para aprender diccionario_general,Estudiante: ?C?mo se dice apagar en Nasa Yuwe? AVI: Se dice fĩchja-.,DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00199,Quiero practicar un dialogo para aprender diccionario_general,"Estudiante: ?C?mo se dice lejos, largo, alto en Nasa Yuwe? AVI: Se dice jyu’j.",DLG-00166,dialogo,diccionario_general,True,True,True
+pedagogical_dialogue,DLG-00209,Quiero practicar un dialogo para aprender frutas_verduras,Estudiante: ?C?mo se dice Uva silvestre en Nasa Yuwe? AVI: Se dice Tlxi'ja.,DLG-00210,dialogo,frutas_verduras,True,True,True
+pedagogical_dialogue,DLG-00219,Quiero practicar un dialogo para aprender frutas_verduras,Estudiante: ?C?mo se dice Pina en Nasa Yuwe? AVI: Se dice Çxahu.,DLG-00210,dialogo,frutas_verduras,True,True,True
+pedagogical_dialogue,DLG-00229,Quiero practicar un dialogo para aprender frutas_verduras,Estudiante: ?C?mo se dice Naranja en Nasa Yuwe? AVI: Se dice Lxima.,DLG-00210,dialogo,frutas_verduras,True,True,True
+pedagogical_dialogue,DLG-00239,Quiero practicar un dialogo para aprender herramientas,Estudiante: ?C?mo se dice Azadon en Nasa Yuwe? AVI: Se dice Çaam pçxuuk.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00249,Quiero practicar un dialogo para aprender herramientas,Estudiante: ?C?mo se dice Machete en Nasa Yuwe? AVI: Se dice Çxilx wala.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00259,Quiero practicar un dialogo para aprender muebles_inmuebles,Estudiante: ?C?mo se dice Cama en Nasa Yuwe? AVI: Se dice Atüu.,DLG-00258,dialogo,muebles_inmuebles,True,True,True
+pedagogical_dialogue,DLG-00269,Quiero practicar un dialogo para aprender muebles_inmuebles,Estudiante: ?C?mo se dice Silla en Nasa Yuwe? AVI: Se dice Pagu.,DLG-00258,dialogo,muebles_inmuebles,True,True,True
+pedagogical_dialogue,DLG-00279,Quiero practicar un dialogo para aprender muebles_inmuebles,Estudiante: ?C?mo se dice Puente en Nasa Yuwe? AVI: Se dice Weh.,DLG-00258,dialogo,muebles_inmuebles,True,True,True
+pedagogical_dialogue,DLG-00289,Quiero practicar un dialogo para aprender nombres_propios,Estudiante: ?C?mo se dice Josefa en Nasa Yuwe? AVI: Se dice Ksepa.,DLG-00282,dialogo,nombres_propios,True,True,True
+pedagogical_dialogue,DLG-00299,Quiero practicar un dialogo para aprender nombres_propios,Estudiante: ?C?mo se dice Maria en Nasa Yuwe? AVI: Se dice Mlxilx.,DLG-00282,dialogo,nombres_propios,True,True,True
+pedagogical_dialogue,DLG-00309,Quiero practicar un dialogo para aprender numeros,Estudiante: ?C?mo se dice Dos en Nasa Yuwe? AVI: Se dice E'z.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00319,Quiero practicar un dialogo para aprender numeros,Estudiante: ?C?mo se dice Siete en Nasa Yuwe? AVI: Se dice Sa't.,DLG-00166,dialogo,diccionario_general,True,False,True
+pedagogical_dialogue,DLG-00329,Quiero practicar un dialogo para aprender parentescos,Estudiante: ?C?mo se dice Hermana en Nasa Yuwe? AVI: Se dice Be'sx.,DLG-00330,dialogo,parentescos,True,True,True
+pedagogical_dialogue,DLG-00339,Quiero practicar un dialogo para aprender parentescos,Estudiante: ?C?mo se dice Abuela en Nasa Yuwe? AVI: Se dice Lula.,DLG-00330,dialogo,parentescos,True,True,True
+pedagogical_dialogue,DLG-00349,Quiero practicar un dialogo para aprender parentescos,Estudiante: ?C?mo se dice Mama en Nasa Yuwe? AVI: Se dice Uma.,DLG-00330,dialogo,parentescos,True,True,True
+pedagogical_dialogue,DLG-00359,Quiero practicar un dialogo para aprender plantas_medicinales,Estudiante: ?C?mo se dice Yerba mora en Nasa Yuwe? AVI: Se dice Eçx äwä ziç.,DLG-00354,dialogo,plantas_medicinales,True,True,True

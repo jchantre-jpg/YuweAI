@@ -1,0 +1,15 @@
+NASA Yuwe / AVI — cuentas de prueba para entrar directo
+
+SI VES "Error 501" al iniciar sesion:
+  No uses Live Server, ni abrir solo frontend/dist/index.html,
+  ni python -m http.server (no aceptan POST /api).
+  Desde la carpeta avi_webapp ejecuta:  python server.py
+  y abre en el navegador:  http://127.0.0.1:8090/
+
+Contraseña para los tres usuarios: AviDemo2026!
+
+  estudiante.demo@nasayuwe.local  (estudiante)
+  docente.demo@nasayuwe.local  (docente)
+  admin.demo@nasayuwe.local  (administrador)
+
+Se crean solas la primera vez que inicias server.py (excepto si AVI_SKIP_DEMO_USERS=1).

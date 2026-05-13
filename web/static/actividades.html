@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AVI · Actividades</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="scene-gradient" aria-hidden="true"></div>
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo-circle"><span>AVI</span></div>
+        <div class="brand-text">
+          <strong>Actividades de aprendizaje</strong>
+          <small>Práctica tipo quiz por categoría</small>
+        </div>
+      </div>
+      <nav class="topbar-nav">
+        <a class="nav-link" href="/index.html">Inicio</a>
+        <a class="nav-link" href="/chat.html">Chat</a>
+        <a class="nav-link" href="/diccionario.html">Diccionario</a>
+        <a class="nav-link nav-primary" href="/actividades.html">Actividades</a>
+      </nav>
+    </header>
+
+    <main class="page">
+      <section class="section">
+        <h2>Módulo 3 · Actividades de aprendizaje</h2>
+        <div class="card">
+          <p>
+            Genera una actividad según la categoría seleccionada y califica tu resultado.
+          </p>
+          <div class="lesson-controls">
+            <select id="activityCategory"></select>
+            <button id="activityBtn" class="btn btn-primary">Generar quiz</button>
+          </div>
+          <div id="activityArea" class="activity-area"></div>
+          <div id="activityScore" class="status"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>AVI Nasa Yuwe · Actividades pedagógicas</p>
+    </footer>
+    <script src="/actividades.js"></script>
+  </body>
+</html>
