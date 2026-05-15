@@ -5,7 +5,7 @@ import os
 import random
 import re
 import secrets
-import sqlite3
+from avi_db import USE_POSTGRES, connect_auth, insert_returning_id, scalar_from_row
 import threading
 import time
 import hashlib
@@ -21,10 +21,29 @@ from urllib.parse import parse_qs, quote, urlparse
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
-CORPUS_PATH = BASE_DIR.parent / "corpus" / "data" / "corpus_bilingue_v5.csv"
+_CORPUS_UNDER_REPO = BASE_DIR.parent / "corpus" / "data" / "corpus_bilingue_v5.csv"
+_CORPUS_SIBLING = BASE_DIR.parent.parent / "corpus" / "data" / "corpus_bilingue_v5.csv"
+_CORPUS_ENV = os.environ.get("AVI_CORPUS_PATH", "").strip()
+if _CORPUS_ENV:
+    CORPUS_PATH = Path(_CORPUS_ENV)
+else:
+    CORPUS_PATH = _CORPUS_UNDER_REPO if _CORPUS_UNDER_REPO.exists() else _CORPUS_SIBLING
 MODEL_PATH = BASE_DIR / "models" / "retrieval_model_v1.json"
+
+
+def _listen_port() -> int:
+    raw = (os.environ.get("PORT") or "").strip()
+    if not raw:
+        return 8090
+    try:
+        return int(raw)
+    except ValueError:
+        return 8090
+
+
 HOST = "0.0.0.0"
-PORT = 8090
+# Render / Fly / Railway inyectan PORT; localmente 8090 si no está definido.
+PORT = _listen_port()
 AUTH_DB_PATH = BASE_DIR / "data" / "avi_auth.db"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
 SESSION_TTL_SEC = 60 * 60 * 24 * 14  # vida máxima de la sesión
@@ -39,6 +58,15 @@ DEMO_ACCOUNTS = (
     ("docente.demo@nasayuwe.local", "Docente Demo", "docente"),
     ("admin.demo@nasayuwe.local", "Administrador Demo", "administrador"),
 )
+
+# CORS: AVI_CORS_ORIGINS=lista separada por comas (p. ej. http://127.0.0.1:5173). Vacío = "*" (solo desarrollo).
+_CORS_RAW = os.environ.get("AVI_CORS_ORIGINS", "").strip()
+CORS_ALLOWED_ORIGINS = frozenset(o.strip() for o in _CORS_RAW.split(",") if o.strip()) if _CORS_RAW else None
+# Rate limit peticiones sensibles de auth por IP (login, registro, recuperación).
+AUTH_RL_MAX = max(1, int(os.environ.get("AVI_AUTH_RATE_MAX", "50")))
+AUTH_RL_WINDOW_SEC = max(60.0, float(os.environ.get("AVI_AUTH_RATE_WINDOW_SEC", "900")))
+_AUTH_RL_LOCK = threading.Lock()
+_AUTH_RL_BUCKETS: dict[str, list[float]] = {}
 
 _AUTH_DB_LOCK = threading.Lock()
 IMAGE_CACHE = {}
@@ -894,8 +922,13 @@ def normalize_email(value) -> str:
 
 
 def init_auth_db() -> None:
+    if USE_POSTGRES:
+        auth_migrate_tables()
+        auth_seed_demo_users()
+        print("[AVI] Base de datos: PostgreSQL (DATABASE_URL / Supabase).")
+        return
     AUTH_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(AUTH_DB_PATH), timeout=30)
+    conn = connect_auth()
     try:
         conn.executescript(
             """
@@ -929,7 +962,16 @@ def init_auth_db() -> None:
 
 
 def auth_migrate_tables() -> None:
-    """Tablas nuevas y columnas sobre DB existente (SQLite)."""
+    """Tablas nuevas y columnas sobre DB existente (SQLite). En Postgres el esquema viene de supabase/migrations/."""
+    if USE_POSTGRES:
+        with _AUTH_DB_LOCK:
+            conn = auth_connect()
+            try:
+                conn.execute("SELECT 1")
+                conn.commit()
+            finally:
+                conn.close()
+        return
     with _AUTH_DB_LOCK:
         conn = auth_connect()
         try:
@@ -1150,9 +1192,7 @@ def auth_seed_demo_users() -> None:
 
 
 def auth_connect():
-    conn = sqlite3.connect(str(AUTH_DB_PATH), timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return connect_auth()
 
 
 def auth_hash_password(password: str) -> str:
@@ -1311,6 +1351,33 @@ def _mail_audience_label(key: str) -> str:
     }.get(key, key or "Destinatarios")
 
 
+def _cors_allow_origin(handler) -> str | None:
+    """Valor para Access-Control-Allow-Origin. None = origen no permitido (lista AVI_CORS_ORIGINS)."""
+    if not CORS_ALLOWED_ORIGINS:
+        return "*"
+    origin = (handler.headers.get("Origin") or "").strip()
+    if not origin:
+        return "*"
+    if origin in CORS_ALLOWED_ORIGINS:
+        return origin
+    return None
+
+
+def auth_rate_allow(handler) -> tuple[bool, str | None]:
+    """Limita intentos de auth por IP (ventana deslizante)."""
+    ip = handler.client_address[0]
+    now = time.time()
+    with _AUTH_RL_LOCK:
+        bucket = _AUTH_RL_BUCKETS.setdefault(ip, [])
+        cutoff = now - AUTH_RL_WINDOW_SEC
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        if len(bucket) >= AUTH_RL_MAX:
+            return False, "Demasiados intentos desde esta red. Espera unos minutos e intentalo de nuevo."
+        bucket.append(now)
+    return True, None
+
+
 def auth_handle_register(handler, data: dict):
     email = normalize_email(data.get("email"))
     password = data.get("password") or ""
@@ -1324,7 +1391,11 @@ def auth_handle_register(handler, data: dict):
 
     if "@" not in email:
         return {"error": "Correo invalido."}, 400
-    if password != password_confirm:
+    if len(password) > 256:
+        return {"error": "La contraseña es demasiado larga."}, 400
+    if len(password_confirm) > 256:
+        return {"error": "La contraseña es demasiado larga."}, 400
+    if not secrets.compare_digest(password, password_confirm):
         return {"error": "Las contraseña no coincide"}, 400
     if len(password) < 8:
         return {"error": "La contraseña debe tener al menos 8 caracteres."}, 400
@@ -1340,7 +1411,8 @@ def auth_handle_register(handler, data: dict):
                 return {"error": "Ya existe una cuenta con este correo."}, 409
             ph = auth_hash_password(password)
             now = time.time()
-            conn.execute(
+            uid = insert_returning_id(
+                conn,
                 """
                 INSERT INTO users (
                     email, password_hash, google_sub, display_name, role, created_at, active, email_verified
@@ -1349,7 +1421,6 @@ def auth_handle_register(handler, data: dict):
                 (email, ph, dn, role, now),
             )
             conn.commit()
-            uid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             tok = auth_create_session(conn, uid)
             row = conn.execute(
                 """
@@ -1366,7 +1437,7 @@ def auth_handle_register(handler, data: dict):
             "token": tok,
             "user": auth_row_to_user(row),
             "message": "Registro Exitoso.",
-            "verification_email_sent": True,
+            "verification_email_sent": False,
         },
         201,
     )
@@ -1375,6 +1446,9 @@ def auth_handle_register(handler, data: dict):
 def auth_handle_login(handler, data: dict):
     email = normalize_email(data.get("email"))
     password = data.get("password") or ""
+
+    if len(password) > 256:
+        return {"error": "La contraseña es demasiado larga."}, 400
 
     if not email or not password:
         return {"error": "Los campos están vacíos, por favor ingresar los datos correspondientes."}, 400
@@ -1445,7 +1519,8 @@ def auth_handle_google(handler, data: dict):
                 if role not in REGISTER_ROLES:
                     return {"error": "Con Google solo puedes registrarte como estudiante o docente."}, 400
                 now = time.time()
-                conn.execute(
+                uid = insert_returning_id(
+                    conn,
                     """
                     INSERT INTO users (
                         email, password_hash, google_sub, display_name, role, created_at, active, email_verified
@@ -1454,7 +1529,6 @@ def auth_handle_google(handler, data: dict):
                     (email, google_sub, display_name, role, now),
                 )
                 conn.commit()
-                uid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 row = conn.execute(
                     """
                     SELECT id, email, display_name, role,
@@ -1559,7 +1633,9 @@ def auth_handle_reset_password(handler, data: dict):
     pw2 = data.get("password_confirm") or ""
     if not email or not code:
         return {"error": "Datos incompletos."}, 400
-    if pw != pw2:
+    if len(pw) > 256 or len(pw2) > 256:
+        return {"error": "La contraseña es demasiado larga."}, 400
+    if not secrets.compare_digest(pw, pw2):
         return {"error": "Las contraseña no coincide"}, 400
     if len(pw) < 8:
         return {"error": "La contraseña debe tener al menos 8 caracteres."}, 400
@@ -1609,7 +1685,8 @@ def teacher_handle_post(handler, route: str, data: dict):
                         return {"error": "Grado no encontrado."}, 404
                     if not grade:
                         grade = gr["name"]
-                conn.execute(
+                gid = insert_returning_id(
+                    conn,
                     """
                     INSERT INTO teacher_groups (
                         teacher_user_id, name, education_level, grade, grade_id, difficulty_default, created_at
@@ -1618,7 +1695,6 @@ def teacher_handle_post(handler, route: str, data: dict):
                     (teacher_id, name, edu, grade, grade_id or None, diff, time.time()),
                 )
                 conn.commit()
-                gid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 return {
                     "group": {"id": gid, "name": name, "education_level": edu, "grade": grade, "grade_id": grade_id or None},
                 }, 201
@@ -1659,10 +1735,12 @@ def teacher_handle_post(handler, route: str, data: dict):
                         (gid, sid, now),
                     )
                 conn.commit()
-                chk = conn.execute(
-                    "SELECT COUNT(*) FROM group_members WHERE group_id = ?",
-                    (gid,),
-                ).fetchone()[0]
+                chk = scalar_from_row(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM group_members WHERE group_id = ?",
+                        (gid,),
+                    ).fetchone()
+                )
                 if chk == 0:
                     return {"error": "Debe seleccionar al menos un estudiante"}, 400
                 return {"message": "¡Asignación correcta!", "members": chk}, 200
@@ -1698,7 +1776,8 @@ def teacher_handle_post(handler, route: str, data: dict):
                     if not g:
                         return {"error": "Grupo inválido."}, 404
                 now = time.time()
-                conn.execute(
+                aid = insert_returning_id(
+                    conn,
                     """
                     INSERT INTO learning_activities (
                         title, description, category, difficulty, mode, creator_user_id, creator_role, status, created_at, updated_at
@@ -1706,7 +1785,6 @@ def teacher_handle_post(handler, route: str, data: dict):
                     """,
                     (title, description, category, difficulty, mode, teacher_id, wf_status, now, now),
                 )
-                aid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 if grade_id or group_id:
                     conn.execute(
                         """
@@ -1738,7 +1816,8 @@ def teacher_handle_post(handler, route: str, data: dict):
                 if not title:
                     return {"error": "Titulo requerido."}, 400
                 now = time.time()
-                conn.execute(
+                sid = insert_returning_id(
+                    conn,
                     """
                     INSERT INTO content_submissions (
                         teacher_user_id, kind, title, espanol, nasa_yuwe, translation,
@@ -1759,7 +1838,6 @@ def teacher_handle_post(handler, route: str, data: dict):
                     ),
                 )
                 conn.commit()
-                sid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 return {"ok": True, "submission_id": sid, "status": "pending"}, 201
             return {"error": "Ruta invalida"}, 404
         finally:
@@ -1982,11 +2060,11 @@ def admin_handle_post(handler, route: str, data: dict):
                     )
                     admin_audit_insert(conn, user, "CMS_UPDATE", f"id={cid_i} titulo={title[:120]}")
                 else:
-                    conn.execute(
+                    new_id = insert_returning_id(
+                        conn,
                         "INSERT INTO cms_items (kind, title, body, updated_at) VALUES (?, ?, ?, ?)",
                         (kind, title, body, now),
                     )
-                    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                     admin_audit_insert(conn, user, "CMS_CREATE", f"id={new_id} titulo={title[:120]}")
                 conn.commit()
                 return {"ok": True}, 200
@@ -2154,14 +2232,14 @@ def admin_handle_post(handler, route: str, data: dict):
                 if conn.execute("SELECT 1 FROM users WHERE email = ?", (email_cr,)).fetchone():
                     return {"error": "Ya existe una cuenta con este correo."}, 409
                 cr_now = time.time()
-                conn.execute(
+                new_uid = insert_returning_id(
+                    conn,
                     """INSERT INTO users (
                         email, password_hash, google_sub, display_name, role,
                         created_at, active, email_verified)
                        VALUES (?, ?, NULL, ?, ?, ?, 1, 1)""",
                     (email_cr, auth_hash_password(pw), display_name_cr, role_cr, cr_now),
                 )
-                new_uid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 admin_audit_insert(conn, user, "USER_CREATE", f"id={new_uid} email={email_cr} rol={role_cr}")
                 conn.commit()
                 return {"message": "Usuario creado", "user_id": new_uid}, 200
@@ -2241,15 +2319,21 @@ def admin_handle_get(handler, route: str):
         with _AUTH_DB_LOCK:
             conn = auth_connect()
             try:
-                n_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-                n_st = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'estudiante'").fetchone()[0]
-                n_dc = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'docente'").fetchone()[0]
-                n_ad = conn.execute(
-                    "SELECT COUNT(*) FROM users WHERE role = 'administrador'",
-                ).fetchone()[0]
-                n_act = conn.execute(
-                    "SELECT COUNT(*) FROM users WHERE COALESCE(active, 1) = 1",
-                ).fetchone()[0]
+                n_users = scalar_from_row(conn.execute("SELECT COUNT(*) FROM users").fetchone())
+                n_st = scalar_from_row(
+                    conn.execute("SELECT COUNT(*) FROM users WHERE role = 'estudiante'").fetchone()
+                )
+                n_dc = scalar_from_row(conn.execute("SELECT COUNT(*) FROM users WHERE role = 'docente'").fetchone())
+                n_ad = scalar_from_row(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM users WHERE role = 'administrador'",
+                    ).fetchone()
+                )
+                n_act = scalar_from_row(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM users WHERE COALESCE(active, 1) = 1",
+                    ).fetchone()
+                )
             finally:
                 conn.close()
         st = ENGINE.stats()
@@ -2660,10 +2744,22 @@ def student_handle_post(handler, route: str, data: dict):
 
 class AVIHandler(BaseHTTPRequestHandler):
     def _send_json(self, data, status=200):
+        acao = _cors_allow_origin(self)
+        if acao is None and CORS_ALLOWED_ORIGINS:
+            data = {"error": "Origen no autorizado para la API (revisa AVI_CORS_ORIGINS en el servidor)."}
+            status = 403
+            acao = None
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if acao:
+            self.send_header("Access-Control-Allow-Origin", acao)
+            if CORS_ALLOWED_ORIGINS:
+                self.send_header("Vary", "Origin")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -2675,6 +2771,9 @@ class AVIHandler(BaseHTTPRequestHandler):
         data = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -2708,18 +2807,92 @@ class AVIHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api"):
+            acao = _cors_allow_origin(self)
+            if acao is None and CORS_ALLOWED_ORIGINS:
+                self.send_error(403, "CORS origin not allowed")
+                return
             self.send_response(204)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            if acao:
+                self.send_header("Access-Control-Allow-Origin", acao)
+                if CORS_ALLOWED_ORIGINS:
+                    self.send_header("Vary", "Origin")
             self.send_header("Access-Control-Max-Age", "86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             return
+        self.send_error(404, "Route not found")
+
+    def do_HEAD(self):
+        """Render y otros proxies usan HEAD para health checks; sin esto: 501 Unsupported method ('HEAD')."""
+        parsed = urlparse(self.path)
+        route = parsed.path
+
+        if route == "/api/health":
+            acao = _cors_allow_origin(self)
+            if acao is None and CORS_ALLOWED_ORIGINS:
+                self.send_response(403)
+                self.end_headers()
+                return
+            body = json.dumps(
+                {
+                    "status": "ok",
+                    "corpus_entries": len(ENGINE.rows),
+                    "categories": len(ENGINE.by_category.keys()),
+                    "model": ENGINE.model.get("model_name", "runtime"),
+                    "training_rows": ENGINE.model.get("training_rows", 0),
+                    "message": "AVI operativo",
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            if acao:
+                self.send_header("Access-Control-Allow-Origin", acao)
+                if CORS_ALLOWED_ORIGINS:
+                    self.send_header("Vary", "Origin")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return
+
+        if route in ("/", "/index.html"):
+            p = STATIC_DIR / "index.html"
+            if not p.exists():
+                self.send_error(404, "File not found")
+                return
+            data = p.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            return
+
         self.send_error(404, "Route not found")
 
     def do_POST(self):
         parsed = urlparse(self.path)
         route = parsed.path
+        if route.startswith("/api/auth"):
+            rate_routes = (
+                "/api/auth/login",
+                "/api/auth/register",
+                "/api/auth/google",
+                "/api/auth/forgot-password",
+                "/api/auth/verify-reset-code",
+                "/api/auth/reset-password",
+            )
+            if route in rate_routes:
+                ok_rl, rl_msg = auth_rate_allow(self)
+                if not ok_rl:
+                    self._send_json({"error": rl_msg}, 429)
+                    return
         data = api_read_json(self)
         if route.startswith("/api/auth"):
             if route == "/api/auth/register":
@@ -2949,6 +3122,10 @@ def run():
             "[AVI] Demo — estudiante: estudiante.demo@nasayuwe.local | docente: docente.demo@nasayuwe.local | "
             f"admin: admin.demo@nasayuwe.local | contraseña: {DEMO_LOGIN_PASSWORD}",
         )
+    print(
+        f"[AVI] Seguridad: rate-limit auth {AUTH_RL_MAX}/{int(AUTH_RL_WINDOW_SEC)}s por IP | "
+        f"CORS={'lista AVI_CORS_ORIGINS' if CORS_ALLOWED_ORIGINS else '* (desarrollo)'}",
+    )
     server.serve_forever()
 
 
