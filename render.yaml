@@ -1,0 +1,28 @@
+# https://render.com/docs/blueprint-spec
+version: "1"
+
+# Render Blueprint: API YuweAI (Docker en la raíz del repo).
+# Al crear / sincronizar el Blueprint, Render pedirá el valor de las variables con sync: false (no las pongas en Git).
+#
+# El plan "free" puede dormir el servicio; la BD persistente va en Supabase (DATABASE_URL).
+# Render define la variable de entorno PORT; server.py la respeta (no fijar solo 8090 en producción).
+
+services:
+  - type: web
+    name: yuweai-avi-api
+    runtime: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: AVI_CORS_ORIGINS
+        value: https://yuwe-ai.web.app,https://yuwe-ai.firebaseapp.com
+      - key: AVI_SKIP_DEMO_USERS
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      # Opcional: OAuth Google en el servidor (si lo usas, añade en el dashboard o descomenta con sync: false)
+      # - key: GOOGLE_CLIENT_ID
+      #   sync: false
