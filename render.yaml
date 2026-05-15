@@ -15,7 +15,8 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /
+    # GET devuelve JSON; algunos checks con HEAD / daban 501 en versiones sin do_HEAD.
+    healthCheckPath: /api/health
     envVars:
       - key: AVI_CORS_ORIGINS
         value: https://yuwe-ai.web.app,https://yuwe-ai.firebaseapp.com
