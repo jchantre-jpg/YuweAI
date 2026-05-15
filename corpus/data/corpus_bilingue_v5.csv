@@ -1,0 +1,2 @@
+id,record_type,nasa_yuwe,nasa_yuwe_norm,espanol,espanol_norm,categoria,subcategoria,tipo_entrada,source_kind,fuente_url,fuente_nombre,estado_validacion,nivel_confianza,quality_flag,licencia_uso,fecha_extraccion,intencion,split,notas
+LEX-STUB01,lexico,Mea,mea,Cero,cero,numeros,numeros,lexico,real,https://example.invalid/stub,KwesxYuwe,revisado,alta,ok,Uso academico con citacion de fuente,2026-05-15,lexico_directo,test,"Stub minimo para build en Render; sustituye por el corpus completo en corpus/data/"
