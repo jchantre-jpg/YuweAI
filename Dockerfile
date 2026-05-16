@@ -27,6 +27,7 @@ COPY web/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY web/server.py ./
+COPY web/avi_db.py ./
 COPY web/static ./static/
 COPY web/models ./models/
 COPY --from=frontend /build/dist ./frontend/dist/
