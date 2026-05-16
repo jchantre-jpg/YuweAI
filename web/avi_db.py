@@ -116,12 +116,21 @@ def _postgres_connect_conninfo() -> str:
             if addr:
                 params["hostaddr"] = addr
             else:
+                if ".supabase.co" in host and host.startswith("db."):
+                    hint = (
+                        "Supabase: la conexion DIRECTA (host db.xxx.supabase.co) es solo IPv6 por defecto; "
+                        "Render no tiene IPv6 hacia esa ruta. En el dashboard Supabase pulsa Connect y elige "
+                        "Session mode (Supavisor): URI con host aws-0-REGION.pooler.supabase.com y puerto 5432, "
+                        "usuario postgres.TU_PROJECT_REF. Sustituye DATABASE_URL en Render por esa cadena (con sslmode=require)."
+                    )
+                else:
+                    hint = (
+                        "Define AVI_PG_HOSTADDR en Render con una IPv4 alcanzable, o usa la URI Session pooler "
+                        "de Supabase (host …pooler.supabase.com). Documentacion: "
+                        "https://supabase.com/docs/guides/database/connecting-to-postgres"
+                    )
                 raise RuntimeError(
-                    "YuweAI Postgres: no se obtuvo IPv4 para el host %r (Render no alcanza IPv6 a Supabase). "
-                    "En Render → Environment: define AVI_PG_HOSTADDR con la IP del registro A de ese host, "
-                    "o cambia DATABASE_URL por la del Session pooler de Supabase (host …pooler.supabase.com). "
-                    "Guía: https://supabase.com/docs/guides/database/connecting-to-postgres"
-                    % (host,)
+                    "YuweAI Postgres: no hay IPv4 resuelto para el host %r. %s" % (host, hint)
                 )
 
     clean = {k: v for k, v in params.items() if v is not None and v != ""}
