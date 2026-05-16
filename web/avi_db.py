@@ -4,34 +4,72 @@ Si DATABASE_URL está definida (p. ej. Supabase), se usa psycopg; si no, sqlite3
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import socket
+import urllib.parse
+import urllib.request
 from typing import Any
 
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
 
 
-def _postgres_connect_kwargs() -> dict[str, Any]:
-    """Parámetros para psycopg.connect. En Render a veces IPv6 a Supabase no es alcanzable; forzamos IPv4 con hostaddr."""
+def _ipv4_socket_lookup(hostname: str, port: int) -> str | None:
+    """Primero solo IPv4; si el SO no devuelve A, prueba AF_UNSPEC y elige la primera IPv4."""
+    try:
+        infos = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
+    except OSError:
+        infos = []
+    if infos:
+        return infos[0][4][0]
+    try:
+        infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return None
+    for fam, *_rest, sa in infos:
+        if fam == socket.AF_INET:
+            return sa[0]
+    return None
+
+
+def _ipv4_lookup_public_dns(hostname: str) -> str | None:
+    """Respaldo: registro A vía DNS público (útil si el resolvedor del contenedor solo da AAAA)."""
+    q = urllib.parse.quote(hostname, safe="")
+    url = f"https://dns.google/resolve?name={q}&type=A"
+    req = urllib.request.Request(url, headers={"User-Agent": "YuweAI-avi/1"})
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            payload = json.loads(resp.read().decode())
+    except Exception:
+        return None
+    for item in payload.get("Answer", []):
+        if item.get("type") == 1 and item.get("data"):
+            return str(item["data"]).strip()
+    return None
+
+
+def _postgres_connect_conninfo() -> str:
+    """Cadena conninfo para libpq. En Render→Supabase a veces solo hay ruta IPv4; fijamos hostaddr."""
     import psycopg.conninfo as conninfo
 
-    params = conninfo.conninfo_to_dict(DATABASE_URL)
+    params = dict(conninfo.conninfo_to_dict(DATABASE_URL))
     prefer_ipv4 = os.environ.get("AVI_PG_PREFER_IPV4", "1").strip().lower() in ("1", "true", "yes")
     host = (params.get("host") or "").strip()
+    manual = (os.environ.get("AVI_PG_HOSTADDR") or "").strip()
+
     if prefer_ipv4 and host and not host.startswith("/") and not (params.get("hostaddr") or "").strip():
         try:
             port = int(params.get("port") or 5432)
         except ValueError:
             port = 5432
-        try:
-            infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
-        except OSError:
-            infos = []
-        if infos:
-            params["hostaddr"] = infos[0][4][0]
-    return params
+        addr = manual or _ipv4_socket_lookup(host, port) or _ipv4_lookup_public_dns(host)
+        if addr:
+            params["hostaddr"] = addr
+
+    clean = {k: v for k, v in params.items() if v is not None and v != ""}
+    return conninfo.make_conninfo(**clean)
 
 
 def _adapt_sql_postgres(sql: str) -> str:
@@ -99,7 +137,7 @@ def connect_auth():
         import psycopg
         from psycopg.rows import dict_row
 
-        conn = psycopg.connect(**_postgres_connect_kwargs(), row_factory=dict_row)
+        conn = psycopg.connect(_postgres_connect_conninfo(), row_factory=dict_row)
         return _AuthConn(conn)
     import sqlite3
 
