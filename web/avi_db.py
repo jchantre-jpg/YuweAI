@@ -6,10 +6,32 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 from typing import Any
 
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
+
+
+def _postgres_connect_kwargs() -> dict[str, Any]:
+    """Parámetros para psycopg.connect. En Render a veces IPv6 a Supabase no es alcanzable; forzamos IPv4 con hostaddr."""
+    import psycopg.conninfo as conninfo
+
+    params = conninfo.conninfo_to_dict(DATABASE_URL)
+    prefer_ipv4 = os.environ.get("AVI_PG_PREFER_IPV4", "1").strip().lower() in ("1", "true", "yes")
+    host = (params.get("host") or "").strip()
+    if prefer_ipv4 and host and not host.startswith("/") and not (params.get("hostaddr") or "").strip():
+        try:
+            port = int(params.get("port") or 5432)
+        except ValueError:
+            port = 5432
+        try:
+            infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        except OSError:
+            infos = []
+        if infos:
+            params["hostaddr"] = infos[0][4][0]
+    return params
 
 
 def _adapt_sql_postgres(sql: str) -> str:
@@ -77,7 +99,7 @@ def connect_auth():
         import psycopg
         from psycopg.rows import dict_row
 
-        conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        conn = psycopg.connect(**_postgres_connect_kwargs(), row_factory=dict_row)
         return _AuthConn(conn)
     import sqlite3
 
