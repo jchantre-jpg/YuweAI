@@ -4,16 +4,26 @@ Si DATABASE_URL está definida (p. ej. Supabase), se usa psycopg; si no, sqlite3
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
 import socket
+import ssl
 import urllib.parse
 import urllib.request
 from typing import Any
 
 DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
+
+
+def _host_is_literal_ip(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname.split("%")[0])
+    except ValueError:
+        return False
+    return True
 
 
 def _ipv4_socket_lookup(hostname: str, port: int) -> str | None:
@@ -34,24 +44,61 @@ def _ipv4_socket_lookup(hostname: str, port: int) -> str | None:
     return None
 
 
-def _ipv4_lookup_public_dns(hostname: str) -> str | None:
-    """Respaldo: registro A vía DNS público (útil si el resolvedor del contenedor solo da AAAA)."""
-    q = urllib.parse.quote(hostname, safe="")
-    url = f"https://dns.google/resolve?name={q}&type=A"
-    req = urllib.request.Request(url, headers={"User-Agent": "YuweAI-avi/1"})
+def _ipv4_gethostbyname(hostname: str) -> str | None:
+    """API legacy; a veces devuelve A cuando getaddrinfo(AF_INET) no."""
     try:
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            payload = json.loads(resp.read().decode())
-    except Exception:
+        ip = socket.gethostbyname(hostname)
+    except OSError:
         return None
+    if ":" in ip:
+        return None
+    return ip
+
+
+def _a_record_from_dns_json(payload: dict) -> str | None:
     for item in payload.get("Answer", []):
-        if item.get("type") == 1 and item.get("data"):
-            return str(item["data"]).strip()
+        if item.get("type") != 1 or not item.get("data"):
+            continue
+        data = str(item["data"]).strip().strip('"')
+        if ":" in data:
+            continue
+        return data
     return None
 
 
+def _dns_resolve_a_record(hostname: str) -> str | None:
+    """DoH (Cloudflare / Google) sin proxy HTTP; respaldo sin verificar TLS solo para leer DNS público."""
+    q = urllib.parse.quote(hostname, safe="")
+    urls = (
+        f"https://1.1.1.1/dns-query?name={q}&type=A",
+        f"https://dns.google/resolve?name={q}&type=A",
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    headers = {"Accept": "application/dns-json", "User-Agent": "YuweAI-avi/1"}
+    for ctx in (ssl.create_default_context(), ssl._create_unverified_context()):
+        for url in urls:
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                with opener.open(req, timeout=8, context=ctx) as resp:
+                    payload = json.loads(resp.read().decode())
+            except Exception:
+                continue
+            addr = _a_record_from_dns_json(payload)
+            if addr:
+                return addr
+    return None
+
+
+def _resolve_ipv4_for_postgres_host(hostname: str, port: int) -> str | None:
+    return (
+        _ipv4_socket_lookup(hostname, port)
+        or _ipv4_gethostbyname(hostname)
+        or _dns_resolve_a_record(hostname)
+    )
+
+
 def _postgres_connect_conninfo() -> str:
-    """Cadena conninfo para libpq. En Render→Supabase a veces solo hay ruta IPv4; fijamos hostaddr."""
+    """Cadena conninfo para libpq. En Render→Supabase a menudo IPv6 no es alcanzable; fijamos hostaddr (IPv4)."""
     import psycopg.conninfo as conninfo
 
     params = dict(conninfo.conninfo_to_dict(DATABASE_URL))
@@ -59,14 +106,23 @@ def _postgres_connect_conninfo() -> str:
     host = (params.get("host") or "").strip()
     manual = (os.environ.get("AVI_PG_HOSTADDR") or "").strip()
 
-    if prefer_ipv4 and host and not host.startswith("/") and not (params.get("hostaddr") or "").strip():
-        try:
-            port = int(params.get("port") or 5432)
-        except ValueError:
-            port = 5432
-        addr = manual or _ipv4_socket_lookup(host, port) or _ipv4_lookup_public_dns(host)
-        if addr:
-            params["hostaddr"] = addr
+    if prefer_ipv4 and host and not host.startswith("/") and not _host_is_literal_ip(host):
+        if not (params.get("hostaddr") or "").strip():
+            try:
+                port = int(params.get("port") or 5432)
+            except ValueError:
+                port = 5432
+            addr = manual or _resolve_ipv4_for_postgres_host(host, port)
+            if addr:
+                params["hostaddr"] = addr
+            else:
+                raise RuntimeError(
+                    "YuweAI Postgres: no se obtuvo IPv4 para el host %r (Render no alcanza IPv6 a Supabase). "
+                    "En Render → Environment: define AVI_PG_HOSTADDR con la IP del registro A de ese host, "
+                    "o cambia DATABASE_URL por la del Session pooler de Supabase (host …pooler.supabase.com). "
+                    "Guía: https://supabase.com/docs/guides/database/connecting-to-postgres"
+                    % (host,)
+                )
 
     clean = {k: v for k, v in params.items() if v is not None and v != ""}
     return conninfo.make_conninfo(**clean)
