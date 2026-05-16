@@ -106,6 +106,24 @@ def _postgres_connect_conninfo() -> str:
     host = (params.get("host") or "").strip()
     manual = (os.environ.get("AVI_PG_HOSTADDR") or "").strip()
 
+    # Supabase "Direct" (db.*.supabase.co) es IPv6-only; Render no lo alcanza.
+    if (
+        prefer_ipv4
+        and host.startswith("db.")
+        and ".supabase.co" in host
+        and "pooler" not in host
+        and not (params.get("hostaddr") or "").strip()
+        and not manual
+    ):
+        raise RuntimeError(
+            "DATABASE_URL en Render sigue apuntando al host DIRECTO %r (solo IPv6). "
+            "El HOST de la URI debe contener pooler.supabase.com (Session pooler de Supabase → Connect), "
+            "no db.… Pasos: Supabase Connect → Session → copiar URI; Render → servicio web "
+            "yuweai-avi-api → Environment → clave exacta DATABASE_URL → pegar → Save → Manual Deploy. "
+            "Si solo editaste el Blueprint, abre el servicio hijo y comprueba que DATABASE_URL se actualizó allí."
+            % (host,)
+        )
+
     if prefer_ipv4 and host and not host.startswith("/") and not _host_is_literal_ip(host):
         if not (params.get("hostaddr") or "").strip():
             try:
