@@ -41,7 +41,8 @@ RUN mkdir -p /app/corpus/data \
        else \
          echo "ERROR: Falta corpus_bilingue_v5.csv. Coloca el archivo en corpus/data/ en el repo (Git LFS si pesa mucho) o define CORPUS_URL en el Space (URL de descarga directa del CSV)." && exit 1; \
        fi \
-    && rm -rf /tmp/corpus_in
+    && rm -rf /tmp/corpus_in \
+    && python -c "import pathlib; p=pathlib.Path('/app/corpus/data/corpus_bilingue_v5.csv'); n=sum(1 for _ in p.open(encoding='utf-8'))-1; assert n>=500, ('corpus_bilingue_v5.csv demasiado pequeno (%s filas). Sube el CSV completo a corpus/data/ o usa build-arg CORPUS_URL con URL raw.'%n); print('corpus build OK:', n, 'filas')"
 
 ENV AVI_CORPUS_PATH=/app/corpus/data/corpus_bilingue_v5.csv
 
