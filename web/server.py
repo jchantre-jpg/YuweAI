@@ -12,7 +12,7 @@ import hashlib
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -59,6 +59,31 @@ DEMO_ACCOUNTS = (
     ("admin.demo@nasayuwe.local", "Administrador Demo", "administrador"),
 )
 
+# Tres docentes con datos de panel (grupos, alumnos, actividades, asignaciones). Misma contraseña fuerte.
+DEMO_TEACHER_PANEL_PASSWORD = "YuweDocente2026!"
+DEMO_TEACHER_PANEL_ACCOUNTS = (
+    ("docente.ana@nasayuwe.local", "Ana López", "docente"),
+    ("docente.carlos@nasayuwe.local", "Carlos Becerra", "docente"),
+    ("docente.lucia@nasayuwe.local", "Lucía Tunque", "docente"),
+)
+# Alumnos dedicados (cada uno solo en un grupo); contraseña = DEMO_LOGIN_PASSWORD
+DEMO_PANEL_STUDENTS = (
+    ("alumno.panel01@nasayuwe.local", "Panel Alumno 01"),
+    ("alumno.panel02@nasayuwe.local", "Panel Alumno 02"),
+    ("alumno.panel03@nasayuwe.local", "Panel Alumno 03"),
+    ("alumno.panel04@nasayuwe.local", "Panel Alumno 04"),
+    ("alumno.panel05@nasayuwe.local", "Panel Alumno 05"),
+    ("alumno.panel06@nasayuwe.local", "Panel Alumno 06"),
+    ("alumno.panel07@nasayuwe.local", "Panel Alumno 07"),
+    ("alumno.panel08@nasayuwe.local", "Panel Alumno 08"),
+    ("alumno.panel09@nasayuwe.local", "Panel Alumno 09"),
+    ("alumno.panel10@nasayuwe.local", "Panel Alumno 10"),
+    ("alumno.panel11@nasayuwe.local", "Panel Alumno 11"),
+    ("alumno.panel12@nasayuwe.local", "Panel Alumno 12"),
+)
+
+TEACHER_PANEL_SEED_DESC_MARKER = "Datos semilla AVI — panel docente relleno."
+
 # CORS: AVI_CORS_ORIGINS=lista separada por comas (p. ej. http://127.0.0.1:5173). Vacío = "*" (solo desarrollo).
 _CORS_RAW = os.environ.get("AVI_CORS_ORIGINS", "").strip()
 CORS_ALLOWED_ORIGINS = frozenset(o.strip() for o in _CORS_RAW.split(",") if o.strip()) if _CORS_RAW else None
@@ -70,6 +95,24 @@ _AUTH_RL_BUCKETS: dict[str, list[float]] = {}
 
 _AUTH_DB_LOCK = threading.Lock()
 IMAGE_CACHE = {}
+IMAGE_CACHE_TTL_SEC = int(os.environ.get("AVI_IMAGE_CACHE_TTL_SEC", "21600"))  # 6 h; evita imagenes incorrectas cacheadas para siempre
+
+
+def _image_cache_get(key: str):
+    ent = IMAGE_CACHE.get(key)
+    if not ent:
+        return None
+    ts, payload = ent
+    if time.time() - ts > IMAGE_CACHE_TTL_SEC:
+        IMAGE_CACHE.pop(key, None)
+        return None
+    return payload
+
+
+def _image_cache_set(key: str, payload: dict) -> None:
+    IMAGE_CACHE[key] = (time.time(), payload)
+
+
 IMAGE_STOPWORDS = {
     "de",
     "la",
@@ -113,9 +156,10 @@ def _lev_distance(a: str, b: str) -> int:
     return prev[-1]
 
 
-# Combinan varias categorias del CSV bajo un slug de UI (mas terminos en pantalla)
+# Combinan varias categorias del CSV bajo un slug de UI (mas terminos en pantalla).
+# Claves y valores deben coincidir con normalize_text(categoria) usado en by_category.
 VIRTUAL_CATEGORIES = {
-    "comida": ("alimentos", "frutas_verduras"),
+    "comida": ("alimentos", normalize_text("frutas_verduras")),
 }
 
 # Palabras frecuentes en espanol (vocab por tema)
@@ -137,6 +181,15 @@ COLOR_ES_A_EN = {
     "dorado": "gold", "plateado": "silver",
 }
 
+# Cielo / cuerpos celestes (evita homonimos tipo "Diana Luna" en deportes)
+CELESTE_ES_A_EN = {
+    "luna": "moon",
+    "sol": "sun",
+    "estrella": "star",
+    "cielo": "sky",
+    "nube": "cloud",
+}
+
 # Ayuda a Commons: titulos en ingles; la coincidencia con el token en espanol es debil
 ALIMENTO_ES_A_EN = {
     "ajo": "garlic", "arroz": "rice", "leche": "milk", "agua": "water", "pan": "bread", "manzana": "apple",
@@ -148,7 +201,7 @@ ALIMENTO_ES_A_EN = {
     "aceite": "cooking oil", "maiz": "corn", "maíz": "corn", "cacao": "cocoa", "canela": "cinnamon", "cordero": "lamb", "chocolate": "chocolate",
     "mazorca": "corn", "arveja": "pea", "arvejas": "peas",
     "zapallo": "squash", "calabaza": "squash", "papa": "potato", "patata": "potato",
-    "arracacha": "arracacha", "choclo": "corn on the cob", "chicha": "fermented corn drink",
+    "arracacha": "arracacha", "guama": "inga edulis guama fruit", "choclo": "corn on the cob", "chicha": "fermented corn drink",
     "quinua": "quinoa", "quinoa": "quinoa", "camote": "sweet potato", "batata": "sweet potato",
     "remolacha": "beet", "zanahoria": "carrot", "apio": "celery", "espinaca": "spinach",
     "coliflor": "cauliflower", "brocoli": "broccoli", "brócoli": "broccoli", "repollo": "cabbage",
@@ -172,7 +225,7 @@ def _core_phrase_for_image(q: str) -> str:
 
 def _image_cat_hint_ui(cat: str) -> str:
     c = normalize_text(cat)
-    if c == "comida" or c == "frutas_verduras":
+    if c == "comida" or c == normalize_text("frutas_verduras"):
         return "alimentos"
     if c in ("diccionario_general", "vocabulario_general"):
         return "general"
@@ -186,6 +239,8 @@ def _gloss_lookup(token: str):
         return "num", NUMERO_EN_PALABRA[k]
     if k in COLOR_ES_A_EN:
         return "color", COLOR_ES_A_EN[k]
+    if k in CELESTE_ES_A_EN:
+        return "celest", CELESTE_ES_A_EN[k]
     if k in ALIMENTO_ES_A_EN:
         return "food", ALIMENTO_ES_A_EN[k]
     if k in ANIMAL_ES_A_EN:
@@ -204,28 +259,42 @@ def fetch_commons_image(query: str, category: str = ""):
     if not q:
         return {"ok": False, "message": "query vacia"}
     cache_key = f"{q}|{cat}"
-    if cache_key in IMAGE_CACHE:
-        return IMAGE_CACHE[cache_key]
+    hit = _image_cache_get(cache_key)
+    if hit is not None:
+        return hit
 
     cat_hint = _image_cat_hint_ui(category)
     toks = tokenize(q)
     first = normalize_text(toks[0]) if toks else ""
 
-    # Solo Commons si el primer término está en un glosario (evita mapas, documentos, ruido).
     gkind, gval = _gloss_lookup(first)
-    if gkind is None:
-        r = {"ok": False, "message": "sin mapeo de imagen (se muestra icono en la app)"}
-        IMAGE_CACHE[cache_key] = r
-        return r
     if gkind == "num":
         search_q = f"{gval} number"
     elif gkind == "color":
         search_q = f"{gval} color"
+    elif gkind == "celest":
+        search_q = f"{gval} natural sky"
     elif gkind == "food":
         gv = str(gval)
-        search_q = gv if (" " in gv or len(gv) > 14) else f"{gv} food"
-    else:
+        gvn = normalize_text(gv)
+        if gvn in ("pea", "peas"):
+            search_q = "pea pisum sativum vegetable plant"
+        elif first == "arracacha":
+            search_q = "arracacha xanthorrhiza"
+        elif " " in gv or len(gv) > 14:
+            search_q = gv
+        else:
+            search_q = f"{gv} food"
+    elif gkind == "animal":
         search_q = f"{gval} animal"
+    else:
+        # Léxico del corpus sin entrada en glosarios: búsqueda por texto en español.
+        search_q = (core or q).strip()
+        if len(search_q) < 2:
+            r = {"ok": False, "message": "sin texto para buscar imagen"}
+            _image_cache_set(cache_key, r)
+            return r
+        search_q = f"{search_q} photo"
 
     api_url = (
         "https://commons.wikimedia.org/w/api.php"
@@ -249,7 +318,7 @@ def fetch_commons_image(query: str, category: str = ""):
             raw = json.loads(resp.read().decode("utf-8", errors="ignore"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         result = {"ok": False, "message": "sin imagen externa disponible"}
-        IMAGE_CACHE[cache_key] = result
+        _image_cache_set(cache_key, result)
         return result
 
     pages = (raw.get("query") or {}).get("pages") or {}
@@ -268,13 +337,24 @@ def fetch_commons_image(query: str, category: str = ""):
                 en_extra.add(normalize_text(p))
         if wn in COLOR_ES_A_EN:
             en_extra.add(normalize_text(COLOR_ES_A_EN[wn]))
+        if wn in CELESTE_ES_A_EN:
+            en_extra.add(normalize_text(CELESTE_ES_A_EN[wn]))
     match_tokens = set(q_tokens) | en_extra
 
     banned_title = {
         "logo", "icon", "symbol", "flag", "map", "escudo", "vector", "svg", "diagram", "chart",
         "coa", "coat", "arms", "fountain", "pennon", "route", "highway", "location", "crystal",
         "document", "manuscript", "parchment", "scroll", "letter", "facsimile", "monument",
+        "newspaper", "journal", "gazette", "typeset", "typesetting", "pressroom", "factory",
+        "workshop", "assembly", "congress", "parliament", "soldiers", "battlefield", "portrait",
+        "yearbook", "classroom", "students", "crowd", "album", "bookcover", "scan",
     }
+    harmful_title_sub = (
+        "newspaper", "journal", "gazette", "typeset", "facsimile", "manuscript", "parchment",
+        "pressroom", "factory", "workers", "workshop", "assembly line", "congress", "parliament",
+        "soldiers", "battlefield", "portrait of", "team photo", "classroom", "students",
+        "crowd at", "album cover", "book cover", "scan of", "typesetting", "canning", "jstor",
+    )
     ranked = []
 
     for page in pages.values():
@@ -284,18 +364,48 @@ def fetch_commons_image(query: str, category: str = ""):
         info = infos[0]
         title_raw = page.get("title", "")
         title = title_raw.replace("File:", "")
+        if ".pdf" in title_raw.lower():
+            continue
         title_norm = normalize_text(title)
         title_tokens = set(tokenize(title_norm))
         if title_tokens & banned_title:
             continue
+        if any(h in title_norm for h in harmful_title_sub):
+            continue
         if int(info.get("width", 0) or 0) < 200 or int(info.get("height", 0) or 0) < 200:
             continue
+
+        if gkind == "food" and gval:
+            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+            needles.discard("")
+            if needles and not any(len(n) >= 2 and n in title_norm for n in needles):
+                continue
+        if gkind == "animal" and gval:
+            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+            needles.discard("")
+            if needles and not any(n in title_norm for n in needles):
+                continue
+        if gkind == "color" and gval:
+            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+            needles.discard("")
+            if needles and not any(n in title_norm for n in needles):
+                continue
+        if gkind == "celest" and gval:
+            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+            needles.discard("")
+            if needles and not any(n in title_norm for n in needles):
+                continue
 
         overlap = len(match_tokens & title_tokens)
         en_overlap = 0
         for w in toks:
             wn = normalize_text(w)
-            for enp in (ALIMENTO_ES_A_EN.get(wn), ANIMAL_ES_A_EN.get(wn), COLOR_ES_A_EN.get(wn)):
+            for enp in (
+                ALIMENTO_ES_A_EN.get(wn),
+                ANIMAL_ES_A_EN.get(wn),
+                COLOR_ES_A_EN.get(wn),
+                CELESTE_ES_A_EN.get(wn),
+            ):
                 if enp and str(enp) and normalize_text(str(enp)) in title_norm:
                     en_overlap += 2
         exact_bonus = 0
@@ -322,18 +432,33 @@ def fetch_commons_image(query: str, category: str = ""):
             "license": (meta.get("LicenseShortName") or {}).get("value", "desconocida"),
             "author": (meta.get("Artist") or {}).get("value", "desconocido"),
         }
-        if score < 1 and (q_tokens and overlap == 0 and en_overlap == 0):
+        if gkind is None:
+            has_anchor = (
+                (first and len(first) >= 3 and first in title_norm)
+                or overlap > 0
+                or en_overlap > 0
+                or exact_bonus >= 4
+            )
+            if not has_anchor:
+                continue
+        if score < 1 and (q_tokens and overlap == 0 and en_overlap == 0) and gkind is not None:
             continue
         ranked.append((score, candidate))
 
     ranked.sort(key=lambda x: x[0], reverse=True)
-    if ranked and ranked[0][0] >= 3:
+    if gkind in ("food", "animal"):
+        min_score = 5
+    elif gkind in ("color", "num", "celest"):
+        min_score = 4
+    else:
+        min_score = 3
+    if ranked and ranked[0][0] >= min_score:
         result = ranked[0][1]
-        IMAGE_CACHE[cache_key] = result
+        _image_cache_set(cache_key, result)
         return result
 
     result = {"ok": False, "message": "no se encontro imagen adecuada"}
-    IMAGE_CACHE[cache_key] = result
+    _image_cache_set(cache_key, result)
     return result
 
 
@@ -381,11 +506,12 @@ class CorpusEngine:
                 rid = row["id"]
                 nasa = row.get("nasa_yuwe", "")
                 esp = row.get("espanol", "")
-                cat = row.get("categoria", "general")
+                cat_display = (row.get("categoria") or "general").strip() or "general"
+                cat_key = normalize_text(cat_display) or "general"
                 record_type = row.get("record_type", "lexico")
                 source = row.get("fuente_nombre", "desconocida")
 
-                text = f"{nasa} {esp} {cat} {record_type}"
+                text = f"{nasa} {esp} {cat_display} {record_type}"
                 toks = set(tokenize(text))
                 if not toks:
                     continue
@@ -396,7 +522,7 @@ class CorpusEngine:
                         "id": rid,
                         "nasa_yuwe": nasa,
                         "espanol": esp,
-                        "categoria": cat,
+                        "categoria": cat_display,
                         "record_type": record_type,
                         "fuente_nombre": source,
                         "fuente_url": row.get("fuente_url", ""),
@@ -412,7 +538,7 @@ class CorpusEngine:
                     self.inv_index[t].add(i)
                 for t in toks:
                     self.doc_freq[t] += 1
-                self.by_category[cat].append(i)
+                self.by_category[cat_key].append(i)
 
         self.total_docs = max(len(self.rows), 1)
 
@@ -658,6 +784,7 @@ class CorpusEngine:
                     "nasa_yuwe": row["nasa_yuwe"],
                     "espanol": row["espanol"],
                     "fuente_nombre": row["fuente_nombre"],
+                    "categoria": row.get("categoria") or row.get("categoria_norm") or "",
                 }
             )
             if not want_all and len(rows) >= max_terms:
@@ -670,6 +797,30 @@ class CorpusEngine:
             "available_categories": sorted(self.by_category.keys()),
             "message": "Leccion generada con vocabulario del corpus real.",
         }
+
+    def lexicon_terms_flat(self, limit: int = 8000) -> list[dict]:
+        """Todos los registros lexicos (para diccionario estudiantil en una sola respuesta)."""
+        try:
+            cap = int(limit)
+        except (TypeError, ValueError):
+            cap = 8000
+        cap = max(1, min(cap, 50_000))
+        out: list[dict] = []
+        for row in self.rows:
+            if row.get("record_type") != "lexico":
+                continue
+            out.append(
+                {
+                    "id": row["id"],
+                    "nasa_yuwe": row["nasa_yuwe"],
+                    "espanol": row["espanol"],
+                    "fuente_nombre": row["fuente_nombre"],
+                    "categoria": row.get("categoria") or "",
+                }
+            )
+            if len(out) >= cap:
+                break
+        return out
 
     def dictionary_search(self, raw_q: str) -> dict:
         """Busqueda de palabra para diccionario estudiantil (traduccion + sugerencias)."""
@@ -1006,7 +1157,8 @@ def auth_migrate_tables() -> None:
                     kind TEXT NOT NULL,
                     title TEXT NOT NULL,
                     body TEXT NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'published'
                 );
                 CREATE TABLE IF NOT EXISTS grades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1035,6 +1187,11 @@ def auth_migrate_tables() -> None:
                     notif_tips INTEGER NOT NULL DEFAULT 0,
                     consent_given INTEGER NOT NULL DEFAULT 1,
                     updated_at REAL NOT NULL DEFAULT 0,
+                    vocab_diary_json TEXT NOT NULL DEFAULT '{}',
+                    dictionary_categories_json TEXT NOT NULL DEFAULT '[]',
+                    streak_current INTEGER NOT NULL DEFAULT 0,
+                    streak_last_active_ymd TEXT,
+                    avi_chat_json TEXT NOT NULL DEFAULT '[]',
                     FOREIGN KEY (student_user_id) REFERENCES users(id)
                 );
                 CREATE TABLE IF NOT EXISTS learning_activities (
@@ -1109,6 +1266,14 @@ def auth_migrate_tables() -> None:
                     state TEXT NOT NULL DEFAULT 'Abierto',
                     created_by_user_id INTEGER
                 );
+                CREATE TABLE IF NOT EXISTS user_app_state (
+                    user_id INTEGER NOT NULL,
+                    namespace TEXT NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (user_id, namespace),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
                 CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_log(created_at);
                 CREATE INDEX IF NOT EXISTS idx_groups_teacher ON teacher_groups(teacher_user_id);
                 CREATE INDEX IF NOT EXISTS idx_members_student ON group_members(student_user_id);
@@ -1128,6 +1293,19 @@ def auth_migrate_tables() -> None:
             gcols = {r[1] for r in conn.execute("PRAGMA table_info(teacher_groups)").fetchall()}
             if "grade_id" not in gcols:
                 conn.execute("ALTER TABLE teacher_groups ADD COLUMN grade_id INTEGER")
+            cms_cols = {r[1] for r in conn.execute("PRAGMA table_info(cms_items)").fetchall()}
+            if "status" not in cms_cols:
+                conn.execute("ALTER TABLE cms_items ADD COLUMN status TEXT NOT NULL DEFAULT 'published'")
+            scols = {r[1] for r in conn.execute("PRAGMA table_info(student_settings)").fetchall()}
+            for col, decl in (
+                ("vocab_diary_json", "TEXT NOT NULL DEFAULT '{}'"),
+                ("dictionary_categories_json", "TEXT NOT NULL DEFAULT '[]'"),
+                ("streak_current", "INTEGER NOT NULL DEFAULT 0"),
+                ("streak_last_active_ymd", "TEXT"),
+                ("avi_chat_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ):
+                if col not in scols:
+                    conn.execute(f"ALTER TABLE student_settings ADD COLUMN {col} {decl}")
             conn.commit()
         finally:
             conn.close()
@@ -1145,7 +1323,7 @@ def auth_write_demo_credentials_file() -> None:
             "  ni python -m http.server (no aceptan POST /api).\n",
             "  Desde la carpeta avi_webapp ejecuta:  python server.py\n",
             "  y abre en el navegador:  http://127.0.0.1:8090/\n\n",
-            f"Contraseña para los tres usuarios: {DEMO_LOGIN_PASSWORD}\n\n",
+            f"Contraseña para las cuentas base (estudiante / docente / admin): {DEMO_LOGIN_PASSWORD}\n\n",
         ]
         for email, _dn, role in DEMO_ACCOUNTS:
             lines.append(f"  {email}  ({role})\n")
@@ -1153,9 +1331,185 @@ def auth_write_demo_credentials_file() -> None:
             "\nSe crean solas la primera vez que inicias server.py "
             "(excepto si AVI_SKIP_DEMO_USERS=1).\n",
         )
+        lines.append("\n--- Docentes con panel lleno (grupos, alumnos, actividades) ---\n")
+        lines.append(f"Contraseña (las 3 cuentas docente): {DEMO_TEACHER_PANEL_PASSWORD}\n")
+        for email, dn, role in DEMO_TEACHER_PANEL_ACCOUNTS:
+            lines.append(f"  {email}  ({dn}, {role})\n")
+        lines.append(
+            f"\nAlumnos solo para esos grupos (contraseña {DEMO_LOGIN_PASSWORD}, "
+            "misma que estudiante.demo):\n",
+        )
+        for email, dn in DEMO_PANEL_STUDENTS:
+            lines.append(f"  {email}  ({dn})\n")
+        lines.append(
+            "\nLos datos de grupos/actividades se insertan al arrancar el servidor "
+            "(una vez por docente, si aún no tenían actividades semilla).\n",
+        )
         path.write_text("".join(lines), encoding="utf-8")
     except OSError:
         pass
+
+
+def _ensure_seed_grade(conn, now: float) -> int:
+    row = conn.execute("SELECT id FROM grades WHERE active = 1 ORDER BY id LIMIT 1").fetchone()
+    if row:
+        return int(row["id"])
+    return insert_returning_id(
+        conn,
+        "INSERT INTO grades (name, level, active, created_at) VALUES (?, ?, 1, ?)",
+        ("Grado institucional (semilla AVI)", "General", now),
+    )
+
+
+def auth_seed_teacher_panel_demo_data(conn, now: float) -> int:
+    """Grupos, alumnos panel, actividades y asignaciones para DEMO_TEACHER_PANEL_ACCOUNTS."""
+    seeded_teachers = 0
+    panel_ids: list[int] = []
+    for em, _ in DEMO_PANEL_STUDENTS:
+        norm = normalize_email(em)
+        r = conn.execute("SELECT id FROM users WHERE email = ?", (norm,)).fetchone()
+        if r:
+            panel_ids.append(int(r["id"]))
+    available = [
+        sid
+        for sid in panel_ids
+        if not conn.execute("SELECT 1 FROM group_members WHERE student_user_id = ?", (sid,)).fetchone()
+    ]
+    next_free = 0
+
+    def take_students(n: int) -> list[int]:
+        nonlocal next_free
+        out: list[int] = []
+        while len(out) < n and next_free < len(available):
+            sid = available[next_free]
+            next_free += 1
+            out.append(sid)
+        return out
+
+    grade_id = _ensure_seed_grade(conn, now)
+    grow = conn.execute("SELECT name FROM grades WHERE id = ?", (grade_id,)).fetchone()
+    grade_label = (grow["name"] if grow else None) or "General"
+
+    for em, display_name, _role in DEMO_TEACHER_PANEL_ACCOUNTS:
+        norm = normalize_email(em)
+        ur = conn.execute("SELECT id FROM users WHERE email = ?", (norm,)).fetchone()
+        if not ur:
+            continue
+        tid = int(ur["id"])
+        if conn.execute(
+            "SELECT 1 FROM learning_activities WHERE creator_user_id = ? AND description LIKE ?",
+            (tid, "Datos semilla AVI%"),
+        ).fetchone():
+            continue
+
+        tag = (display_name.split()[0] if display_name else "Docente").strip() or "Docente"
+        g1 = insert_returning_id(
+            conn,
+            """
+            INSERT INTO teacher_groups (
+                teacher_user_id, name, education_level, grade, grade_id, difficulty_default, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tid,
+                f"Intercultural A — {tag} (semilla AVI)",
+                "Primaria",
+                grade_label,
+                grade_id,
+                "intermedio",
+                now - 86400 * 40,
+            ),
+        )
+        g2 = insert_returning_id(
+            conn,
+            """
+            INSERT INTO teacher_groups (
+                teacher_user_id, name, education_level, grade, grade_id, difficulty_default, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tid,
+                f"Lengua viva B — {tag} (semilla AVI)",
+                "Primaria",
+                grade_label,
+                grade_id,
+                "intermedio",
+                now - 86400 * 34,
+            ),
+        )
+
+        for sid in take_students(2):
+            conn.execute(
+                "INSERT OR IGNORE INTO group_members (group_id, student_user_id, assigned_at) VALUES (?, ?, ?)",
+                (g1, sid, now - 86400 * 30),
+            )
+        for sid in take_students(2):
+            conn.execute(
+                "INSERT OR IGNORE INTO group_members (group_id, student_user_id, assigned_at) VALUES (?, ?, ?)",
+                (g2, sid, now - 86400 * 28),
+            )
+
+        def insert_activity(
+            title: str,
+            category: str,
+            mode: str,
+            status: str,
+            days_ago_created: float,
+            group_assignments: list[tuple[int, float]],
+        ) -> None:
+            c_at = now - 86400 * days_ago_created
+            desc = f"{TEACHER_PANEL_SEED_DESC_MARKER} Actividad: {title}."
+            aid = insert_returning_id(
+                conn,
+                """
+                INSERT INTO learning_activities (
+                    title, description, category, difficulty, mode, creator_user_id, creator_role, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'docente', ?, ?, ?)
+                """,
+                (title, desc, category, "intermedio", mode, tid, status, c_at, c_at),
+            )
+            for gid, days_a in group_assignments:
+                conn.execute(
+                    """
+                    INSERT INTO activity_assignments (
+                        activity_id, grade_id, group_id, student_user_id, assigned_by_user_id, assigned_at
+                    ) VALUES (?, NULL, ?, NULL, ?, ?)
+                    """,
+                    (aid, gid, tid, now - 86400 * days_a),
+                )
+
+        insert_activity("Saludos en contexto escolar", "saludos", "quiz", "active", 6.0, [(g1, 4.0)])
+        insert_activity("Familia y parentesco", "familia", "completar", "active", 9.0, [(g1, 7.0)])
+        insert_activity("Numeros del 1 al 20", "numeros", "quiz", "draft", 14.0, [])
+        insert_activity("Frutas de nuestra tierra", "comida", "imagen", "active", 4.0, [(g2, 3.0)])
+        insert_activity("Expresiones de cortesia", "expresiones", "leccion", "scheduled", 11.0, [(g2, 10.0)])
+        insert_activity("Animales del entorno", "animales", "quiz", "active", 2.0, [(g1, 1.0), (g2, 1.0)])
+
+        if not conn.execute(
+            "SELECT 1 FROM content_submissions WHERE teacher_user_id = ? AND notes LIKE ?",
+            (tid, "%semilla AVI propuesta%"),
+        ).fetchone():
+            conn.execute(
+                """
+                INSERT INTO content_submissions (
+                    teacher_user_id, kind, title, espanol, nasa_yuwe, translation,
+                    image_url, audio_url, notes, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, '', '', ?, 'pending', ?)
+                """,
+                (
+                    tid,
+                    "termino",
+                    f"Semilla AVI: kimus (color) — {tag}",
+                    "color",
+                    "kimus",
+                    "",
+                    "Propuesta generada en semilla AVI propuesta (demo)",
+                    now - 3600,
+                ),
+            )
+
+        seeded_teachers += 1
+    return seeded_teachers
 
 
 def auth_seed_demo_users() -> None:
@@ -1163,7 +1517,8 @@ def auth_seed_demo_users() -> None:
         return
     auth_write_demo_credentials_file()
     now = time.time()
-    created = []
+    created: list[str] = []
+    panel_seeded = 0
     with _AUTH_DB_LOCK:
         conn = auth_connect()
         try:
@@ -1181,14 +1536,46 @@ def auth_seed_demo_users() -> None:
                     (norm, ph, display_name, role, now),
                 )
                 created.append(norm)
+            ph_stu = auth_hash_password(DEMO_LOGIN_PASSWORD)
+            for email, display_name in DEMO_PANEL_STUDENTS:
+                norm = normalize_email(email)
+                if conn.execute("SELECT 1 FROM users WHERE email = ?", (norm,)).fetchone():
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO users (
+                        email, password_hash, google_sub, display_name, role, created_at, active, email_verified
+                    ) VALUES (?, ?, NULL, ?, 'estudiante', ?, 1, 1)
+                    """,
+                    (norm, ph_stu, display_name, now),
+                )
+                created.append(norm)
+            ph_doc_panel = auth_hash_password(DEMO_TEACHER_PANEL_PASSWORD)
+            for email, display_name, role in DEMO_TEACHER_PANEL_ACCOUNTS:
+                norm = normalize_email(email)
+                if conn.execute("SELECT 1 FROM users WHERE email = ?", (norm,)).fetchone():
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO users (
+                        email, password_hash, google_sub, display_name, role, created_at, active, email_verified
+                    ) VALUES (?, ?, NULL, ?, ?, ?, 1, 1)
+                    """,
+                    (norm, ph_doc_panel, display_name, role, now),
+                )
+                created.append(norm)
+            panel_seeded = auth_seed_teacher_panel_demo_data(conn, now)
             conn.commit()
         finally:
             conn.close()
     if created:
         print(
-            f"[AVI] Creadas {len(created)} cuentas de prueba. "
-            f"Contraseña: {DEMO_LOGIN_PASSWORD} — ver {AUTH_DB_PATH.parent / 'CUENTAS_PRUEBA.txt'}",
+            f"[AVI] Creadas o actualizadas cuentas de prueba ({len(created)} altas nuevas). "
+            f"Cuentas base: {DEMO_LOGIN_PASSWORD} — docentes panel: {DEMO_TEACHER_PANEL_PASSWORD} — "
+            f"ver {AUTH_DB_PATH.parent / 'CUENTAS_PRUEBA.txt'}",
         )
+    if panel_seeded:
+        print(f"[AVI] Semilla panel docente aplicada a {panel_seeded} docente(s) con grupos y actividades.")
 
 
 def auth_connect():
@@ -1211,6 +1598,24 @@ def auth_verify_password(password: str, stored: str) -> bool:
         return dk.hex() == hexdigest
     except Exception:
         return False
+
+
+def auth_password_policy_violation(pw: str) -> str | None:
+    """None si cumple la política; mensaje corto si no."""
+    if not isinstance(pw, str) or len(pw) < 10:
+        return "La contrasena debe tener al menos 10 caracteres."
+    if len(pw) > 256:
+        return "La contrasena es demasiado larga."
+    if not any(c.islower() for c in pw):
+        return "Incluye al menos una letra minuscula."
+    if not any(c.isupper() for c in pw):
+        return "Incluye al menos una letra mayuscula."
+    if not any(c.isdigit() for c in pw):
+        return "Incluye al menos un numero."
+    _spec = set("!@#$%^&*()_+-=[]{};:\\'\",.<>?/\\|`~")
+    if not any(c in _spec for c in pw):
+        return "Incluye al menos un simbolo (por ejemplo ! @ # ...)."
+    return None
 
 
 def auth_row_to_user(row):
@@ -1397,8 +1802,9 @@ def auth_handle_register(handler, data: dict):
         return {"error": "La contraseña es demasiado larga."}, 400
     if not secrets.compare_digest(password, password_confirm):
         return {"error": "Las contraseña no coincide"}, 400
-    if len(password) < 8:
-        return {"error": "La contraseña debe tener al menos 8 caracteres."}, 400
+    pol = auth_password_policy_violation(password)
+    if pol:
+        return {"error": pol}, 400
     if len(dn) < 2:
         return {"error": "Nombre minimo 2 caracteres."}, 400
     if role not in REGISTER_ROLES:
@@ -1411,7 +1817,7 @@ def auth_handle_register(handler, data: dict):
                 return {"error": "Ya existe una cuenta con este correo."}, 409
             ph = auth_hash_password(password)
             now = time.time()
-            uid = insert_returning_id(
+            _ = insert_returning_id(
                 conn,
                 """
                 INSERT INTO users (
@@ -1421,23 +1827,12 @@ def auth_handle_register(handler, data: dict):
                 (email, ph, dn, role, now),
             )
             conn.commit()
-            tok = auth_create_session(conn, uid)
-            row = conn.execute(
-                """
-                SELECT id, email, display_name, role, COALESCE(active,1) AS active,
-                       COALESCE(email_verified,1) AS email_verified
-                FROM users WHERE id = ?
-                """,
-                (uid,),
-            ).fetchone()
         finally:
             conn.close()
     return (
         {
-            "token": tok,
-            "user": auth_row_to_user(row),
-            "message": "Registro Exitoso.",
-            "verification_email_sent": False,
+            "message": "Cuenta creada. Inicia sesion con tu correo y contrasena.",
+            "email": email,
         },
         201,
     )
@@ -1584,6 +1979,11 @@ def auth_handle_forgot(handler, data: dict):
     email = normalize_email(data.get("email"))
     if not email or "@" not in email:
         return {"error": "Correo electrónico invalido"}, 400
+    msg = (
+        "Si el correo esta registrado, puedes restablecer la contrasena con el codigo. "
+        "En entornos de prueba el codigo tambien aparece en la consola del servidor."
+    )
+    out: dict = {"message": msg}
     with _AUTH_DB_LOCK:
         conn = auth_connect()
         try:
@@ -1592,7 +1992,7 @@ def auth_handle_forgot(handler, data: dict):
                 (email,),
             ).fetchone()
             if not row:
-                return {"error": "Correo electrónico invalido"}, 400
+                return out, 200
             code = str(random.randint(100000, 999999))
             now = time.time()
             conn.execute(
@@ -1603,8 +2003,10 @@ def auth_handle_forgot(handler, data: dict):
             conn.commit()
         finally:
             conn.close()
-    print(f"[AVI recuperacion] {email}: codigo {code} (consola servidor; usar en demo)")
-    return {"message": "Correo electrónico enviado"}, 200
+    print(f"[AVI recuperacion] {email}: codigo {code} (consola servidor)")
+    if os.environ.get("AVI_DEBUG_PASSWORD_RESET", "").strip().lower() in ("1", "true", "yes"):
+        out["reset_code"] = code
+    return out, 200
 
 
 def auth_handle_verify_reset(handler, data: dict):
@@ -1637,8 +2039,9 @@ def auth_handle_reset_password(handler, data: dict):
         return {"error": "La contraseña es demasiado larga."}, 400
     if not secrets.compare_digest(pw, pw2):
         return {"error": "Las contraseña no coincide"}, 400
-    if len(pw) < 8:
-        return {"error": "La contraseña debe tener al menos 8 caracteres."}, 400
+    pol = auth_password_policy_violation(pw)
+    if pol:
+        return {"error": pol}, 400
     with _AUTH_DB_LOCK:
         conn = auth_connect()
         try:
@@ -1839,6 +2242,69 @@ def teacher_handle_post(handler, route: str, data: dict):
                 )
                 conn.commit()
                 return {"ok": True, "submission_id": sid, "status": "pending"}, 201
+            if route == "/api/teacher/activity-update":
+                aid = int(data.get("activity_id", 0) or 0)
+                if not aid:
+                    return {"error": "Actividad invalida."}, 400
+                row = conn.execute(
+                    """
+                    SELECT id FROM learning_activities
+                    WHERE id = ? AND creator_user_id = ? AND creator_role = 'docente'
+                    """,
+                    (aid, teacher_id),
+                ).fetchone()
+                if not row:
+                    return {"error": "Actividad no encontrada."}, 404
+                title = (data.get("title") or "").strip()
+                if not title:
+                    return {"error": "Titulo requerido."}, 400
+                description = (data.get("description") or "").strip() or title
+                category = normalize_text(data.get("category") or "comida")
+                difficulty = (data.get("difficulty") or "intermedio").strip()
+                mode = (data.get("mode") or "quiz").strip()
+                raw_st = normalize_text(data.get("status") or data.get("workflow_status") or "active").lower()
+                if raw_st in ("borrador", "draft"):
+                    wf_status = "draft"
+                elif raw_st in ("programada", "scheduled"):
+                    wf_status = "scheduled"
+                else:
+                    wf_status = "active"
+                now = time.time()
+                conn.execute(
+                    """
+                    UPDATE learning_activities
+                    SET title = ?, description = ?, category = ?, difficulty = ?, mode = ?, status = ?, updated_at = ?
+                    WHERE id = ? AND creator_user_id = ?
+                    """,
+                    (title, description, category, difficulty, mode, wf_status, now, aid, teacher_id),
+                )
+                conn.commit()
+                return {"ok": True, "activity_id": aid}, 200
+            if route == "/api/teacher/group-unassign":
+                gid = int(data.get("group_id", 0) or 0)
+                sid = int(data.get("student_id", 0) or 0)
+                if not gid or not sid:
+                    return {"error": "Grupo y estudiante requeridos."}, 400
+                g = conn.execute(
+                    "SELECT id FROM teacher_groups WHERE id = ? AND teacher_user_id = ?",
+                    (gid, teacher_id),
+                ).fetchone()
+                if not g:
+                    return {"error": "Grupo no encontrado."}, 404
+                conn.execute(
+                    "DELETE FROM group_members WHERE group_id = ? AND student_user_id = ?",
+                    (gid, sid),
+                )
+                conn.commit()
+                return {"message": "Estudiante retirado del grupo."}, 200
+            if route == "/api/teacher/messaging-state":
+                try:
+                    payload_clean = _validate_teacher_messaging_payload(data)
+                    user_app_state_put_payload(conn, teacher_id, _NS_TEACHER_MESSAGING, payload_clean)
+                except ValueError as err:
+                    return {"error": str(err)}, 413
+                conn.commit()
+                return {"ok": True}, 200
             return {"error": "Ruta invalida"}, 404
         finally:
             conn.close()
@@ -1886,14 +2352,29 @@ def teacher_handle_get(handler, route: str, parsed):
             try:
                 rows = conn.execute(
                     """
-                    SELECT id, email, display_name FROM users
-                    WHERE role = 'estudiante' AND COALESCE(active, 1) = 1
-                      AND (LOWER(display_name) LIKE ? OR LOWER(email) LIKE ?)
-                    ORDER BY display_name LIMIT 80
+                    SELECT u.id, u.email, u.display_name,
+                           m.group_id AS member_group_id,
+                           tg.name AS member_group_name
+                    FROM users u
+                    LEFT JOIN group_members m ON m.student_user_id = u.id
+                    LEFT JOIN teacher_groups tg ON tg.id = m.group_id
+                    WHERE u.role = 'estudiante' AND COALESCE(u.active, 1) = 1
+                      AND (LOWER(u.display_name) LIKE ? OR LOWER(u.email) LIKE ?)
+                      AND (m.group_id IS NULL OR tg.teacher_user_id = ?)
+                    ORDER BY u.display_name LIMIT 80
                     """,
-                    (like, like),
+                    (like, like, teacher_id),
                 ).fetchall()
-                students = [{"id": r["id"], "email": r["email"], "display_name": r["display_name"]} for r in rows]
+                students = [
+                    {
+                        "id": r["id"],
+                        "email": r["email"],
+                        "display_name": r["display_name"],
+                        "member_group_id": r["member_group_id"],
+                        "member_group_name": r["member_group_name"],
+                    }
+                    for r in rows
+                ]
             finally:
                 conn.close()
         return {"students": students}, 200
@@ -1937,6 +2418,227 @@ def teacher_handle_get(handler, route: str, parsed):
             finally:
                 conn.close()
         return {"activities": acts}, 200
+    if route == "/api/teacher/reports-summary":
+        raw_days = (parse_qs(parsed.query).get("days") or ["30"])[0]
+        try:
+            days = int(raw_days)
+        except (TypeError, ValueError):
+            days = 30
+        if days not in (7, 30, 90):
+            days = 30
+        cutoff = time.time() - days * 86400
+        with _AUTH_DB_LOCK:
+            conn = auth_connect()
+            try:
+                n_groups = int(
+                    scalar_from_row(
+                        conn.execute(
+                            "SELECT COUNT(*) FROM teacher_groups WHERE teacher_user_id = ?",
+                            (teacher_id,),
+                        ).fetchone()
+                    )
+                    or 0
+                )
+                n_students = int(
+                    scalar_from_row(
+                        conn.execute(
+                            """
+                            SELECT COUNT(*) FROM group_members m
+                            JOIN teacher_groups g ON g.id = m.group_id
+                            WHERE g.teacher_user_id = ?
+                            """,
+                            (teacher_id,),
+                        ).fetchone()
+                    )
+                    or 0
+                )
+                acts_created = int(
+                    scalar_from_row(
+                        conn.execute(
+                            """
+                            SELECT COUNT(*) FROM learning_activities
+                            WHERE creator_user_id = ? AND creator_role = 'docente' AND created_at >= ?
+                            """,
+                            (teacher_id, cutoff),
+                        ).fetchone()
+                    )
+                    or 0
+                )
+                assigns_win = int(
+                    scalar_from_row(
+                        conn.execute(
+                            """
+                            SELECT COUNT(*) FROM activity_assignments aa
+                            JOIN teacher_groups g ON g.id = aa.group_id
+                            WHERE g.teacher_user_id = ? AND aa.group_id IS NOT NULL AND aa.assigned_at >= ?
+                            """,
+                            (teacher_id, cutoff),
+                        ).fetchone()
+                    )
+                    or 0
+                )
+                n_active_all = int(
+                    scalar_from_row(
+                        conn.execute(
+                            """
+                            SELECT COUNT(*) FROM learning_activities
+                            WHERE creator_user_id = ? AND creator_role = 'docente' AND status = 'active'
+                            """,
+                            (teacher_id,),
+                        ).fetchone()
+                    )
+                    or 0
+                )
+                g_rows = conn.execute(
+                    """
+                    SELECT g.id, g.name,
+                           (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS students,
+                           (SELECT COUNT(*) FROM activity_assignments aa
+                            WHERE aa.group_id = g.id AND aa.assigned_at >= ?) AS assigns_w
+                    FROM teacher_groups g
+                    WHERE g.teacher_user_id = ?
+                    ORDER BY g.created_at DESC
+                    LIMIT 50
+                    """,
+                    (cutoff, teacher_id),
+                ).fetchall()
+                max_aw = max((int(r["assigns_w"] or 0) for r in g_rows), default=0)
+                group_bars = []
+                for r in g_rows:
+                    aw = int(r["assigns_w"] or 0)
+                    bar_pct = min(100, round(100 * aw / max_aw)) if max_aw else 0
+                    group_bars.append(
+                        {
+                            "id": r["id"],
+                            "name": r["name"],
+                            "students": int(r["students"] or 0),
+                            "assignments_window": aw,
+                            "bar_pct": bar_pct,
+                        }
+                    )
+                recent_rows = conn.execute(
+                    """
+                    SELECT a.id, a.title, a.mode, a.created_at,
+                           (
+                             SELECT MAX(aa.assigned_at) FROM activity_assignments aa
+                             WHERE aa.activity_id = a.id
+                           ) AS assigned_at,
+                           (
+                             SELECT g.name FROM activity_assignments aa
+                             JOIN teacher_groups g ON g.id = aa.group_id
+                             WHERE aa.activity_id = a.id AND aa.group_id IS NOT NULL
+                             ORDER BY aa.assigned_at DESC LIMIT 1
+                           ) AS group_name
+                    FROM learning_activities a
+                    WHERE a.creator_user_id = ? AND a.creator_role = 'docente'
+                      AND (
+                        a.created_at >= ?
+                        OR EXISTS (
+                          SELECT 1 FROM activity_assignments aa
+                          WHERE aa.activity_id = a.id AND aa.assigned_at >= ?
+                            AND aa.group_id IN (SELECT id FROM teacher_groups WHERE teacher_user_id = ?)
+                        )
+                      )
+                    ORDER BY COALESCE(
+                             (SELECT MAX(aa.assigned_at) FROM activity_assignments aa WHERE aa.activity_id = a.id),
+                             a.created_at
+                           ) DESC
+                    LIMIT 8
+                    """,
+                    (teacher_id, cutoff, cutoff, teacher_id),
+                ).fetchall()
+                recent_activities = [
+                    {
+                        "id": r["id"],
+                        "title": r["title"],
+                        "mode": r["mode"],
+                        "created_at": r["created_at"],
+                        "assigned_at": r["assigned_at"],
+                        "group_name": r["group_name"],
+                    }
+                    for r in recent_rows
+                ]
+                act_tab = conn.execute(
+                    """
+                    SELECT a.id, a.title, a.mode, a.category, a.status, a.created_at,
+                           (
+                             SELECT MAX(aa.assigned_at) FROM activity_assignments aa
+                             WHERE aa.activity_id = a.id
+                           ) AS assigned_at,
+                           (
+                             SELECT g.name FROM activity_assignments aa
+                             JOIN teacher_groups g ON g.id = aa.group_id
+                             WHERE aa.activity_id = a.id AND aa.group_id IS NOT NULL
+                             ORDER BY aa.assigned_at DESC LIMIT 1
+                           ) AS group_name
+                    FROM learning_activities a
+                    WHERE a.creator_user_id = ? AND a.creator_role = 'docente'
+                      AND (
+                        a.created_at >= ?
+                        OR EXISTS (
+                          SELECT 1 FROM activity_assignments aa
+                          WHERE aa.activity_id = a.id AND aa.assigned_at >= ?
+                            AND aa.group_id IN (SELECT id FROM teacher_groups WHERE teacher_user_id = ?)
+                        )
+                      )
+                    ORDER BY COALESCE(
+                             (SELECT MAX(aa.assigned_at) FROM activity_assignments aa WHERE aa.activity_id = a.id),
+                             a.created_at
+                           ) DESC
+                    LIMIT 80
+                    """,
+                    (teacher_id, cutoff, cutoff, teacher_id),
+                ).fetchall()
+                activities_tab = [
+                    {
+                        "id": r["id"],
+                        "title": r["title"],
+                        "mode": r["mode"],
+                        "category": r["category"],
+                        "status": r["status"],
+                        "created_at": r["created_at"],
+                        "assigned_at": r["assigned_at"],
+                        "group_name": r["group_name"],
+                    }
+                    for r in act_tab
+                ]
+                stud_rows = conn.execute(
+                    """
+                    SELECT u.id AS student_id, u.display_name, u.email, g.name AS group_name
+                    FROM group_members m
+                    JOIN users u ON u.id = m.student_user_id
+                    JOIN teacher_groups g ON g.id = m.group_id
+                    WHERE g.teacher_user_id = ?
+                    ORDER BY g.name, u.display_name
+                    LIMIT 500
+                    """,
+                    (teacher_id,),
+                ).fetchall()
+                students_tab = [
+                    {
+                        "student_id": r["student_id"],
+                        "display_name": r["display_name"],
+                        "email": r["email"],
+                        "group_name": r["group_name"],
+                    }
+                    for r in stud_rows
+                ]
+            finally:
+                conn.close()
+        return {
+            "days": days,
+            "totals": {
+                "groups": n_groups,
+                "students_in_groups": n_students,
+                "activities_created_window": acts_created,
+                "group_assignments_window": assigns_win,
+                "active_activities_all": n_active_all,
+            },
+            "group_bars": group_bars,
+            "recent_activities": recent_activities,
+            "activities_tab": activities_tab,
+            "students_tab": students_tab,
+        }, 200
     if route == "/api/teacher/group-report":
         gid = int(parse_qs(parsed.query).get("group_id", ["0"])[0] or 0)
         with _AUTH_DB_LOCK:
@@ -1957,6 +2659,18 @@ def teacher_handle_get(handler, route: str, parsed):
                     (gid,),
                 ).fetchall()
                 roster = [{"id": r["id"], "display_name": r["display_name"], "email": r["email"]} for r in members]
+                n_act = scalar_from_row(
+                    conn.execute(
+                        """
+                        SELECT COUNT(DISTINCT aa.activity_id) FROM activity_assignments aa
+                        WHERE aa.group_id = ?
+                        """,
+                        (gid,),
+                    ).fetchone()
+                )
+                avg_txt = "—"
+                if roster and n_act:
+                    avg_txt = f"{(n_act / len(roster)):.1f}"
             finally:
                 conn.close()
         return {
@@ -1964,10 +2678,19 @@ def teacher_handle_get(handler, route: str, parsed):
             "students": roster,
             "summary": {
                 "total_estudiantes": len(roster),
-                "promedio_actividades": "—",
-                "nota": "Complementar con registros locales de práctica cuando estén enlazados.",
+                "actividades_asignadas_grupo": int(n_act or 0),
+                "promedio_actividades_por_estudiante": avg_txt,
+                "nota": "Indicadores derivados de asignaciones registradas en AVI.",
             },
         }, 200
+    if route == "/api/teacher/messaging-state":
+        with _AUTH_DB_LOCK:
+            conn = auth_connect()
+            try:
+                data = user_app_state_get_payload(conn, teacher_id, _NS_TEACHER_MESSAGING)
+            finally:
+                conn.close()
+        return {"messaging": data}, 200
     return {"error": "Not found"}, 404
 
 
@@ -2032,6 +2755,19 @@ def admin_handle_post(handler, route: str, data: dict):
                 return {"message": "Rol asignado con éxito" if role else "Usuario actualizado"}, 200
             if route == "/api/admin/user-delete":
                 uid = int(data.get("id", 0) or 0)
+                if uid <= 0:
+                    return {"error": "Usuario inválido."}, 400
+                if uid == int(user["id"]):
+                    return {"error": "No puede eliminar su propia cuenta de administrador."}, 400
+                conn.execute(
+                    "DELETE FROM activity_assignments WHERE assigned_by_user_id = ? OR student_user_id = ?",
+                    (uid, uid),
+                )
+                conn.execute("DELETE FROM learning_activities WHERE creator_user_id = ?", (uid,))
+                conn.execute("DELETE FROM content_submissions WHERE teacher_user_id = ?", (uid,))
+                conn.execute("DELETE FROM student_settings WHERE student_user_id = ?", (uid,))
+                conn.execute("DELETE FROM student_grades WHERE student_user_id = ?", (uid,))
+                conn.execute("DELETE FROM user_app_state WHERE user_id = ?", (uid,))
                 conn.execute(
                     """DELETE FROM group_members WHERE student_user_id = ?
                        OR group_id IN (SELECT id FROM teacher_groups WHERE teacher_user_id = ?)""",
@@ -2048,6 +2784,8 @@ def admin_handle_post(handler, route: str, data: dict):
                 kind = (data.get("kind") or "termino").strip()
                 title = (data.get("title") or "").strip()
                 body = (data.get("body") or "").strip()
+                st_raw = normalize_text(data.get("status") or "published").lower()
+                cms_status = "draft" if st_raw in ("draft", "borrador") else "published"
                 if not title:
                     return {"error": "Titulo requerido"}, 400
                 cid = data.get("id")
@@ -2055,15 +2793,15 @@ def admin_handle_post(handler, route: str, data: dict):
                 if cid is not None and str(cid).isdigit():
                     cid_i = int(cid)
                     conn.execute(
-                        "UPDATE cms_items SET kind = ?, title = ?, body = ?, updated_at = ? WHERE id = ?",
-                        (kind, title, body, now, cid_i),
+                        "UPDATE cms_items SET kind = ?, title = ?, body = ?, updated_at = ?, status = ? WHERE id = ?",
+                        (kind, title, body, now, cms_status, cid_i),
                     )
                     admin_audit_insert(conn, user, "CMS_UPDATE", f"id={cid_i} titulo={title[:120]}")
                 else:
                     new_id = insert_returning_id(
                         conn,
-                        "INSERT INTO cms_items (kind, title, body, updated_at) VALUES (?, ?, ?, ?)",
-                        (kind, title, body, now),
+                        "INSERT INTO cms_items (kind, title, body, updated_at, status) VALUES (?, ?, ?, ?, ?)",
+                        (kind, title, body, now, cms_status),
                     )
                     admin_audit_insert(conn, user, "CMS_CREATE", f"id={new_id} titulo={title[:120]}")
                 conn.commit()
@@ -2164,8 +2902,8 @@ def admin_handle_post(handler, route: str, data: dict):
                         f"Notas: {row['notes'] or '—'}",
                     ]
                     conn.execute(
-                        "INSERT INTO cms_items (kind, title, body, updated_at) VALUES (?, ?, ?, ?)",
-                        (row["kind"] or "termino", title, "\n".join(body_lines), now),
+                        "INSERT INTO cms_items (kind, title, body, updated_at, status) VALUES (?, ?, ?, ?, ?)",
+                        (row["kind"] or "termino", title, "\n".join(body_lines), now, "published"),
                     )
                 admin_audit_insert(
                     conn,
@@ -2223,8 +2961,9 @@ def admin_handle_post(handler, route: str, data: dict):
                 role_cr = (data.get("role") or "").strip().lower()
                 if not email_cr or "@" not in email_cr:
                     return {"error": "Correo invalido."}, 400
-                if len(pw) < 8:
-                    return {"error": "La contraseña debe tener al menos 8 caracteres."}, 400
+                pol = auth_password_policy_violation(pw)
+                if pol:
+                    return {"error": pol}, 400
                 if len(display_name_cr) < 2:
                     return {"error": "Nombre mínimo 2 caracteres."}, 400
                 if role_cr not in AUTH_ROLES:
@@ -2246,6 +2985,51 @@ def admin_handle_post(handler, route: str, data: dict):
             return {"error": "Ruta invalida"}, 404
         finally:
             conn.close()
+
+
+def _admin_usage_series_sql(conn) -> dict:
+    """Últimos 5 meses: registros nuevos de usuarios y sesiones creadas (aprox. uso)."""
+    today = date.today()
+    y, m = today.year, today.month
+    months_order: list[tuple[int, int]] = []
+    for _ in range(5):
+        months_order.insert(0, (y, m))
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+    labels_es = ("", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")
+    labels: list[str] = []
+    new_users: list[int] = []
+    sessions: list[int] = []
+    for year, month in months_order:
+        labels.append(labels_es[month])
+        start = datetime(year, month, 1, tzinfo=timezone.utc).timestamp()
+        if month == 12:
+            end = datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp()
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=timezone.utc).timestamp()
+        nu = int(
+            scalar_from_row(
+                conn.execute(
+                    "SELECT COUNT(*) FROM users WHERE created_at >= ? AND created_at < ?",
+                    (start, end),
+                ).fetchone()
+            )
+            or 0
+        )
+        ns = int(
+            scalar_from_row(
+                conn.execute(
+                    "SELECT COUNT(*) FROM sessions WHERE created_at >= ? AND created_at < ?",
+                    (start, end),
+                ).fetchone()
+            )
+            or 0
+        )
+        new_users.append(nu)
+        sessions.append(ns)
+    return {"months": labels, "new_users": new_users, "sessions": sessions}
 
 
 def admin_handle_get(handler, route: str):
@@ -2304,7 +3088,7 @@ def admin_handle_get(handler, route: str):
             conn = auth_connect()
             try:
                 rows = conn.execute(
-                    "SELECT id, kind, title, body, updated_at FROM cms_items ORDER BY updated_at DESC LIMIT 300"
+                    "SELECT id, kind, title, body, updated_at, COALESCE(status, 'published') AS status FROM cms_items ORDER BY updated_at DESC LIMIT 300"
                 ).fetchall()
                 items = [{k: r[k] for k in r.keys()} for r in rows]
             finally:
@@ -2316,6 +3100,8 @@ def admin_handle_get(handler, route: str):
             "corpus_snapshot": ENGINE.stats(),
         }, 200
     if route == "/api/admin/stats-dash":
+        usage_series: dict = {"months": [], "new_users": [], "sessions": []}
+        n_cms = 0
         with _AUTH_DB_LOCK:
             conn = auth_connect()
             try:
@@ -2334,26 +3120,35 @@ def admin_handle_get(handler, route: str):
                         "SELECT COUNT(*) FROM users WHERE COALESCE(active, 1) = 1",
                     ).fetchone()
                 )
+                n_cms = int(scalar_from_row(conn.execute("SELECT COUNT(*) FROM cms_items").fetchone()) or 0)
+                usage_series = _admin_usage_series_sql(conn)
             finally:
                 conn.close()
         st = ENGINE.stats()
         total_entries = len(ENGINE.rows)
         if n_users == 0:
-            payload = {"message": "No existen estadísticas disponibles", "empty": True}
+            payload = {
+                "message": "No existen estadísticas disponibles",
+                "empty": True,
+                "usage_series": usage_series,
+                "cms_items_count": n_cms,
+            }
         else:
             payload = {
                 "empty": False,
                 "platform": {
-                    "usuarios_registrados": n_users,
-                    "estudiantes": n_st,
-                    "docentes": n_dc,
-                    "administradores": n_ad,
-                    "cuentas_activas": n_act,
+                    "usuarios_registrados": int(n_users or 0),
+                    "estudiantes": int(n_st or 0),
+                    "docentes": int(n_dc or 0),
+                    "administradores": int(n_ad or 0),
+                    "cuentas_activas": int(n_act or 0),
                 },
                 "corpus": {
                     "entradas": total_entries,
                     "categorias": st.get("categories", 0),
+                    "cms_items_count": n_cms,
                 },
+                "usage_series": usage_series,
             }
         return payload, 200
     if route == "/api/admin/content-submissions":
@@ -2530,6 +3325,224 @@ def admin_handle_get(handler, route: str):
     return {"error": "Not found"}, 404
 
 
+_NS_TEACHER_MESSAGING = "teacher_messaging_v1"
+_MAX_VOCAB_DIARY_JSON = 48_000
+_MAX_AVI_CHAT_JSON = 280_000
+_MAX_CHAT_MSGS = 72
+_MAX_DICT_CATEGORIES = 48
+
+
+def _utc_today_ymd() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _ymd_minus_one(ymd: str) -> str:
+    d = date.fromisoformat(ymd)
+    return (d - timedelta(days=1)).isoformat()
+
+
+def _streak_week_slots(streak_n: int) -> list[bool]:
+    n = max(0, min(int(streak_n), 7))
+    return [i >= 7 - n for i in range(7)]
+
+
+def _json_parse_obj(raw, default: dict):
+    if raw is None:
+        return dict(default)
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return dict(default)
+        try:
+            out = json.loads(s)
+            return out if isinstance(out, dict) else dict(default)
+        except json.JSONDecodeError:
+            return dict(default)
+    return dict(default)
+
+
+def _json_parse_list(raw, default: list):
+    if raw is None:
+        return list(default)
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return list(default)
+        try:
+            out = json.loads(s)
+            return out if isinstance(out, list) else list(default)
+        except json.JSONDecodeError:
+            return list(default)
+    return list(default)
+
+
+def student_ensure_settings_row(conn, student_id: int) -> None:
+    now = time.time()
+    conn.execute(
+        """
+        INSERT INTO student_settings (student_user_id, updated_at)
+        VALUES (?, ?)
+        ON CONFLICT (student_user_id) DO NOTHING
+        """,
+        (student_id, now),
+    )
+
+
+def student_streak_touch_and_read(conn, student_id: int) -> tuple[int, list[bool]]:
+    row = conn.execute(
+        """
+        SELECT streak_current, streak_last_active_ymd
+        FROM student_settings WHERE student_user_id = ?
+        """,
+        (student_id,),
+    ).fetchone()
+    streak = int(row["streak_current"] or 0) if row else 0
+    raw_last = row["streak_last_active_ymd"] if row else None
+    last = raw_last.strip() if isinstance(raw_last, str) and raw_last.strip() else None
+    today = _utc_today_ymd()
+    if last == today:
+        return streak, _streak_week_slots(streak)
+    if last is None:
+        streak = 1
+    elif last == _ymd_minus_one(today):
+        streak = streak + 1
+    else:
+        streak = 1
+    now = time.time()
+    conn.execute(
+        """
+        UPDATE student_settings
+        SET streak_current = ?, streak_last_active_ymd = ?, updated_at = ?
+        WHERE student_user_id = ?
+        """,
+        (streak, today, now, student_id),
+    )
+    return streak, _streak_week_slots(streak)
+
+
+def _validate_vocab_diary(obj: object) -> dict:
+    d = obj if isinstance(obj, dict) else {}
+    items_in = d.get("items")
+    items: list = []
+    if isinstance(items_in, list):
+        for it in items_in[:30]:
+            if not isinstance(it, dict):
+                continue
+            tid = it.get("id")
+            if tid is None:
+                continue
+            items.append(
+                {
+                    "id": tid,
+                    "espanol": str(it.get("espanol") or "")[:240],
+                    "nasa_yuwe": str(it.get("nasa_yuwe") or "")[:240],
+                    "progress": max(0, min(100, int(it.get("progress") or 0))),
+                }
+            )
+    validated = max(0, min(30, int(d.get("validated") or 0)))
+    out = {"validated": validated, "items": items}
+    raw = json.dumps(out, ensure_ascii=False)
+    if len(raw.encode("utf-8")) > _MAX_VOCAB_DIARY_JSON:
+        out["items"] = items[:12]
+        out["validated"] = min(validated, 12)
+    return out
+
+
+def _validate_dictionary_categories(obj: object) -> list[str]:
+    if not isinstance(obj, list):
+        return []
+    out: list[str] = []
+    for x in obj[:_MAX_DICT_CATEGORIES]:
+        s = str(x).strip()[:64]
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def _validate_avi_chat_messages(obj: object) -> list[dict]:
+    if not isinstance(obj, list):
+        return []
+    out: list[dict] = []
+    for m in obj[:_MAX_CHAT_MSGS]:
+        if not isinstance(m, dict):
+            continue
+        role = str(m.get("role") or "user")[:24]
+        text = str(m.get("text") or "")[:8000]
+        at = str(m.get("at") or "")[:80]
+        o = {"role": role, "text": text}
+        if at:
+            o["at"] = at
+        if m.get("audio"):
+            o["audio"] = True
+        out.append(o)
+    return out
+
+
+def _validate_teacher_messaging_payload(obj: object) -> dict:
+    if not isinstance(obj, dict):
+        return {"threads": [], "active": ""}
+    threads_in = obj.get("threads")
+    threads: list[dict] = []
+    if isinstance(threads_in, list):
+        for th in threads_in[:24]:
+            if not isinstance(th, dict):
+                continue
+            tid = str(th.get("id") or "")[:48] or secrets.token_hex(4)
+            with_ = str(th.get("with") or "Chat")[:200]
+            msgs_in = th.get("msgs")
+            msgs: list[dict] = []
+            if isinstance(msgs_in, list):
+                for m in msgs_in[:120]:
+                    if not isinstance(m, dict):
+                        continue
+                    text = str(m.get("text") or "")[:4000]
+                    msgs.append(
+                        {
+                            "me": bool(m.get("me")),
+                            "text": text,
+                            "at": str(m.get("at") or "")[:80],
+                        }
+                    )
+            threads.append({"id": tid, "with": with_, "msgs": msgs, "last": str(th.get("last") or "")[:80]})
+    active = str(obj.get("active") or "")[:48]
+    return {"threads": threads, "active": active}
+
+
+def user_app_state_get_payload(conn, user_id: int, namespace: str) -> dict:
+    row = conn.execute(
+        "SELECT payload FROM user_app_state WHERE user_id = ? AND namespace = ?",
+        (user_id, namespace),
+    ).fetchone()
+    if not row:
+        return {}
+    return _json_parse_obj(row["payload"], {})
+
+
+def user_app_state_put_payload(conn, user_id: int, namespace: str, payload: dict) -> None:
+    now = time.time()
+    body = json.dumps(payload, ensure_ascii=False)
+    if len(body.encode("utf-8")) > 400_000:
+        raise ValueError("Estado demasiado grande")
+    conn.execute(
+        """
+        INSERT INTO user_app_state (user_id, namespace, payload, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT (user_id, namespace) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        """,
+        (user_id, namespace, body, now),
+    )
+
+
 def student_handle_get(handler, route: str, parsed):
     user, err, st_code = api_require_user(handler, {"estudiante"})
     if err:
@@ -2563,7 +3576,7 @@ def student_handle_get(handler, route: str, parsed):
                     "groups": [{k: r[k] for k in r.keys()} for r in groups],
                 }, 200
             if route == "/api/student/activities":
-                rows = conn.execute(
+                assigned = conn.execute(
                     """
                     SELECT DISTINCT a.id, a.title, a.description, a.category, a.difficulty, a.mode, a.created_at
                     FROM learning_activities a
@@ -2581,12 +3594,27 @@ def student_handle_get(handler, route: str, parsed):
                     """,
                     (student_id, student_id, student_id),
                 ).fetchall()
-                return {"activities": [{k: r[k] for k in r.keys()} for r in rows]}, 200
+                catalog = conn.execute(
+                    """
+                    SELECT id, title, description, category, difficulty, mode, created_at
+                    FROM learning_activities
+                    WHERE status = 'active'
+                    ORDER BY created_at DESC
+                    LIMIT 300
+                    """,
+                ).fetchall()
+                return {
+                    "activities": [{k: r[k] for k in r.keys()} for r in assigned],
+                    "catalog": [{k: r[k] for k in r.keys()} for r in catalog],
+                }, 200
             if route == "/api/student/settings":
+                student_ensure_settings_row(conn, student_id)
+                streak_n, week_slots = student_streak_touch_and_read(conn, student_id)
                 row = conn.execute(
                     """
                     SELECT language, theme, level, goal, reminders,
-                           notif_daily, notif_content, notif_streak, notif_tips, consent_given
+                           notif_daily, notif_content, notif_streak, notif_tips, consent_given,
+                           vocab_diary_json, dictionary_categories_json, avi_chat_json
                     FROM student_settings
                     WHERE student_user_id = ?
                     """,
@@ -2605,6 +3633,10 @@ def student_handle_get(handler, route: str, parsed):
                     "consent_given": 1,
                 }
                 data = {**defaults, **({k: row[k] for k in row.keys()} if row else {})}
+                vocab_diary = _json_parse_obj(data.get("vocab_diary_json"), {"validated": 0, "items": []})
+                dictionary_last_categories = _json_parse_list(data.get("dictionary_categories_json"), [])
+                avi_chat_messages = _json_parse_list(data.get("avi_chat_json"), [])
+                conn.commit()
                 return {
                     "settings": {
                         "language": data["language"],
@@ -2619,6 +3651,10 @@ def student_handle_get(handler, route: str, parsed):
                             "tips": bool(data["notif_tips"]),
                         },
                         "consent_given": bool(data["consent_given"]),
+                        "vocab_diary": vocab_diary,
+                        "dictionary_last_categories": dictionary_last_categories,
+                        "avi_chat_messages": avi_chat_messages,
+                        "streak": {"current": streak_n, "week_slots": week_slots},
                     }
                 }, 200
             if route == "/api/student/sessions":
@@ -2659,10 +3695,12 @@ def student_handle_post(handler, route: str, data: dict):
         conn = auth_connect()
         try:
             if route == "/api/student/settings":
+                student_ensure_settings_row(conn, student_id)
                 curr = conn.execute(
                     """
                     SELECT language, theme, level, goal, reminders,
-                           notif_daily, notif_content, notif_streak, notif_tips, consent_given
+                           notif_daily, notif_content, notif_streak, notif_tips, consent_given,
+                           vocab_diary_json, dictionary_categories_json, avi_chat_json
                     FROM student_settings
                     WHERE student_user_id = ?
                     """,
@@ -2688,7 +3726,7 @@ def student_handle_post(handler, route: str, data: dict):
                         notif_daily, notif_content, notif_streak, notif_tips, consent_given,
                         updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(student_user_id) DO UPDATE SET
+                    ON CONFLICT (student_user_id) DO UPDATE SET
                         language = excluded.language,
                         theme = excluded.theme,
                         level = excluded.level,
@@ -2716,13 +3754,43 @@ def student_handle_post(handler, route: str, data: dict):
                         now,
                     ),
                 )
+                extra_sets: list[str] = []
+                extra_vals: list[object] = []
+                if "vocab_diary" in payload:
+                    dj = _validate_vocab_diary(payload.get("vocab_diary"))
+                    extra_sets.append("vocab_diary_json = ?")
+                    extra_vals.append(json.dumps(dj, ensure_ascii=False))
+                if "dictionary_last_categories" in payload:
+                    dc = _validate_dictionary_categories(payload.get("dictionary_last_categories"))
+                    extra_sets.append("dictionary_categories_json = ?")
+                    extra_vals.append(json.dumps(dc, ensure_ascii=False))
+                if "avi_chat_messages" in payload:
+                    cm = _validate_avi_chat_messages(payload.get("avi_chat_messages"))
+                    blob = json.dumps(cm, ensure_ascii=False)
+                    if len(blob.encode("utf-8")) > _MAX_AVI_CHAT_JSON:
+                        cm = cm[:40]
+                        blob = json.dumps(cm, ensure_ascii=False)
+                    extra_sets.append("avi_chat_json = ?")
+                    extra_vals.append(blob)
+                if extra_sets:
+                    extra_vals.append(now)
+                    extra_vals.append(student_id)
+                    conn.execute(
+                        "UPDATE student_settings SET "
+                        + ", ".join(extra_sets)
+                        + ", updated_at = ? WHERE student_user_id = ?",
+                        tuple(extra_vals),
+                    )
                 conn.commit()
                 return {"ok": True}, 200
             if route == "/api/student/change-password":
                 new_password = str(payload.get("new_password") or "")
                 current_password = str(payload.get("current_password") or "")
-                if len(new_password) < 8:
-                    return {"error": "La nueva contraseña debe tener al menos 8 caracteres."}, 400
+                if len(new_password) > 256:
+                    return {"error": "La nueva contraseña es demasiado larga."}, 400
+                pol = auth_password_policy_violation(new_password)
+                if pol:
+                    return {"error": pol}, 400
                 row = conn.execute("SELECT password_hash FROM users WHERE id = ?", (student_id,)).fetchone()
                 if not row:
                     return {"error": "Usuario no encontrado."}, 404
@@ -2978,8 +4046,10 @@ class AVIHandler(BaseHTTPRequestHandler):
             "/api/teacher/groups",
             "/api/teacher/students",
             "/api/teacher/group-report",
+            "/api/teacher/reports-summary",
             "/api/teacher/grades",
             "/api/teacher/activities",
+            "/api/teacher/messaging-state",
         ):
             payload, status = teacher_handle_get(self, route, parsed)
             self._send_json(payload, status)
@@ -3063,6 +4133,16 @@ class AVIHandler(BaseHTTPRequestHandler):
             result = ENGINE.lesson(cat, limit=limit)
             self._send_json(result)
             return
+        if route == "/api/dictionary/full":
+            qs = parse_qs(parsed.query)
+            lim_raw = (qs.get("limit") or ["12000"])[0]
+            try:
+                lim_i = int(lim_raw)
+            except ValueError:
+                lim_i = 12000
+            terms = ENGINE.lexicon_terms_flat(lim_i)
+            self._send_json({"terms": terms, "count": len(terms)})
+            return
         if route == "/api/dictionary":
             cat = parse_qs(parsed.query).get("category", [""])[0]
             limit = parse_qs(parsed.query).get("limit", ["12"])[0]
@@ -3120,7 +4200,10 @@ def run():
         auth_write_demo_credentials_file()
         print(
             "[AVI] Demo — estudiante: estudiante.demo@nasayuwe.local | docente: docente.demo@nasayuwe.local | "
-            f"admin: admin.demo@nasayuwe.local | contraseña: {DEMO_LOGIN_PASSWORD}",
+            f"admin: admin.demo@nasayuwe.local | contraseña cuentas base: {DEMO_LOGIN_PASSWORD}\n"
+            f"[AVI] Docentes con panel lleno (grupos + actividades): "
+            f"docente.ana@nasayuwe.local, docente.carlos@nasayuwe.local, docente.lucia@nasayuwe.local | "
+            f"contraseña: {DEMO_TEACHER_PANEL_PASSWORD}",
         )
     print(
         f"[AVI] Seguridad: rate-limit auth {AUTH_RL_MAX}/{int(AUTH_RL_WINDOW_SEC)}s por IP | "
