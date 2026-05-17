@@ -164,11 +164,15 @@ def _adapt_sql_postgres(sql: str) -> str:
             "ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, "
             "created_at = EXCLUDED.created_at",
         )
+    # SQLite INSERT OR IGNORE -> Postgres ON CONFLICT (PK es (group_id, student_user_id)).
+    # Debe coincidir con cualquier espaciado (server.py usa una linea; otras variantes multilinea).
     if "INSERT OR IGNORE INTO group_members" in s:
-        s = s.replace(
-            "INSERT OR IGNORE INTO group_members (group_id, student_user_id, assigned_at)\n                        VALUES (?, ?, ?)",
+        s = re.sub(
+            r"INSERT\s+OR\s+IGNORE\s+INTO\s+group_members\s*\(\s*group_id\s*,\s*student_user_id\s*,\s*assigned_at\s*\)\s*VALUES\s*\(\s*\?\s*,\s*\?\s*,\s*\?\s*\)",
             "INSERT INTO group_members (group_id, student_user_id, assigned_at) VALUES (%s, %s, %s) "
             "ON CONFLICT (group_id, student_user_id) DO NOTHING",
+            s,
+            flags=re.IGNORECASE | re.DOTALL,
         )
     if "?" in s:
         s = re.sub(r"\?", "%s", s)
