@@ -1,4 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_BASE || ''
+/** Base del API. En dev suele ir vacío (proxy Vite a :8090). En prod, si falta VITE_API_BASE en el build, se usa el host Render por defecto. */
+const DEFAULT_PROD_API = 'https://yuweai-avi-api.onrender.com'
+const _rawBase = (import.meta.env.VITE_API_BASE ?? '').toString().trim().replace(/\/+$/, '')
+const API_BASE =
+  _rawBase ||
+  (import.meta.env.PROD ? DEFAULT_PROD_API : '')
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -10,6 +15,11 @@ export class ApiError extends Error {
 
 async function parseJsonSafe(response) {
   const text = await response.text()
+  const trimmed = text.trimStart()
+  const looksJson = trimmed.startsWith('{') || trimmed.startsWith('[')
+  if (!looksJson && trimmed.startsWith('<')) {
+    return { __htmlError: true, status: response.status }
+  }
   if (!text) return {}
   try {
     return JSON.parse(text)
@@ -18,9 +28,32 @@ async function parseJsonSafe(response) {
   }
 }
 
+function throwIfHtmlPayload(data, response) {
+  if (data && data.__htmlError) {
+    throw new ApiError(
+      'El servidor devolvio HTML en lugar de JSON. Revisa VITE_API_BASE o que el API AVI este activo.',
+      data.status || response.status || 502,
+    )
+  }
+}
+
 async function request(path) {
   const response = await fetch(`${API_BASE}${path}`)
-  const data = await parseJsonSafe(response)
+  const text = await response.text()
+  const trimmed = text.trimStart()
+  const looksJson = trimmed.startsWith('{') || trimmed.startsWith('[')
+  if (!looksJson && trimmed.startsWith('<')) {
+    throw new ApiError(
+      'El servidor devolvio HTML en lugar de JSON. Revisa VITE_API_BASE o que el API AVI este activo.',
+      response.status || 502,
+    )
+  }
+  let data = {}
+  try {
+    data = trimmed ? JSON.parse(text) : {}
+  } catch {
+    throw new ApiError(`Respuesta no valida (${response.status}).`, response.status)
+  }
   if (!response.ok) {
     throw new ApiError(data.error || `Error ${response.status}`, response.status)
   }
@@ -38,6 +71,7 @@ async function postJson(path, body, token = null) {
     body: JSON.stringify(body ?? {}),
   })
   const data = await parseJsonSafe(response)
+  throwIfHtmlPayload(data, response)
   if (!response.ok) {
     throw new ApiError(data.error || `Error ${response.status}`, response.status)
   }
@@ -49,6 +83,7 @@ async function getJsonAuthorized(path, token) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   const data = await parseJsonSafe(response)
+  throwIfHtmlPayload(data, response)
   if (!response.ok) {
     throw new ApiError(data.error || `Error ${response.status}`, response.status)
   }
@@ -75,6 +110,11 @@ export function getDictionary(category, limit = 200) {
   return request(`/api/dictionary?category=${encodeURIComponent(category)}&limit=${limit}`)
 }
 
+/** Todos los términos léxicos del corpus (una petición; tope en servidor). */
+export function getDictionaryFull(limit = 25000) {
+  return request(`/api/dictionary/full?limit=${encodeURIComponent(String(limit))}`)
+}
+
 export function getActivity(category, limit = 6) {
   return request(`/api/activity?category=${encodeURIComponent(category)}&limit=${limit}`)
 }
@@ -98,7 +138,7 @@ export function fetchAuthConfig() {
   return request('/api/auth/config')
 }
 
-/** @returns {{ token: string, user: { id, email, display_name, role } }} */
+/** Registro: ya no devuelve token; el usuario debe iniciar sesión después. */
 export function authRegister(body) {
   return postJson('/api/auth/register', body)
 }
@@ -157,6 +197,19 @@ export function getTeacherGrades(token) {
 
 export function getTeacherActivities(token) {
   return getJsonAuthorized('/api/teacher/activities', token)
+}
+
+/** @param days 7 | 30 | 90 */
+export function getTeacherReportsSummary(token, days = 30) {
+  return getJsonAuthorized(`/api/teacher/reports-summary?days=${encodeURIComponent(String(days))}`, token)
+}
+
+export function updateTeacherActivity(token, body) {
+  return postJson('/api/teacher/activity-update', body, token)
+}
+
+export function postTeacherGroupUnassign(token, body) {
+  return postJson('/api/teacher/group-unassign', body, token)
 }
 
 export function createTeacherActivity(token, body) {
@@ -245,6 +298,14 @@ export function getStudentSettings(token) {
 
 export function saveStudentSettings(token, body) {
   return postJson('/api/student/settings', body, token)
+}
+
+export function getTeacherMessagingState(token) {
+  return getJsonAuthorized('/api/teacher/messaging-state', token)
+}
+
+export function saveTeacherMessagingState(token, body) {
+  return postJson('/api/teacher/messaging-state', body, token)
 }
 
 export function getStudentSessions(token) {
