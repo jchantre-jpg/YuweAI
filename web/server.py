@@ -190,6 +190,18 @@ CELESTE_ES_A_EN = {
     "nube": "cloud",
 }
 
+# Verbos / palabras muy ambiguas en Commons (toponimos, museos): busqueda en ingles concretada.
+ES_LEX_IMAGE_SEARCH = {
+    "correr": "running person athletics",
+    "caminar": "walking people street",
+    "saltar": "jumping person outdoors",
+    "nadar": "swimming person pool",
+    "bailar": "folk dance traditional",
+    "cantar": "singer choir singing",
+    "dormir": "sleeping child peaceful",
+    "comer": "eating meal table family",
+    "beber": "drinking water glass",
+}
 # Ayuda a Commons: titulos en ingles; la coincidencia con el token en espanol es debil
 ALIMENTO_ES_A_EN = {
     "ajo": "garlic", "arroz": "rice", "leche": "milk", "agua": "water", "pan": "bread", "manzana": "apple",
@@ -212,6 +224,7 @@ ANIMAL_ES_A_EN = {
     "gato": "cat", "perro": "dog", "pez": "fish", "vaca": "cow", "caballo": "horse", "oso": "bear", "leon": "lion", "león": "lion",
     "pajaro": "bird", "pájaro": "bird", "oveja": "sheep", "cerdo": "pig", "rana": "frog", "serpiente": "snake", "pato": "duck",
     "gallina": "chicken", "gallo": "rooster", "tortuga": "turtle", "conejo": "rabbit", "cabra": "goat", "elefante": "elephant",
+    "mariposa": "butterfly",
 }
 
 
@@ -294,7 +307,10 @@ def fetch_commons_image(query: str, category: str = ""):
             r = {"ok": False, "message": "sin texto para buscar imagen"}
             _image_cache_set(cache_key, r)
             return r
-        search_q = f"{search_q} photo"
+        if first in ES_LEX_IMAGE_SEARCH:
+            search_q = f"{ES_LEX_IMAGE_SEARCH[first]} photo"
+        else:
+            search_q = f"{search_q} photo"
 
     api_url = (
         "https://commons.wikimedia.org/w/api.php"
@@ -303,7 +319,7 @@ def fetch_commons_image(query: str, category: str = ""):
         "&generator=search"
         "&gsrnamespace=6"
         f"&gsrsearch={quote(search_q)}"
-        "&gsrlimit=24"
+        "&gsrlimit=40"
         "&prop=imageinfo"
         "&iiprop=url|extmetadata|size"
         "&iiurlwidth=640"
@@ -340,6 +356,10 @@ def fetch_commons_image(query: str, category: str = ""):
         if wn in CELESTE_ES_A_EN:
             en_extra.add(normalize_text(CELESTE_ES_A_EN[wn]))
     match_tokens = set(q_tokens) | en_extra
+    if first in ES_LEX_IMAGE_SEARCH:
+        for w in tokenize(normalize_text(ES_LEX_IMAGE_SEARCH[first])):
+            if len(w) > 2 and w not in IMAGE_STOPWORDS and w not in ESP_STOP_QUERY:
+                match_tokens.add(w)
 
     banned_title = {
         "logo", "icon", "symbol", "flag", "map", "escudo", "vector", "svg", "diagram", "chart",
@@ -354,108 +374,150 @@ def fetch_commons_image(query: str, category: str = ""):
         "pressroom", "factory", "workers", "workshop", "assembly line", "congress", "parliament",
         "soldiers", "battlefield", "portrait of", "team photo", "classroom", "students",
         "crowd at", "album cover", "book cover", "scan of", "typesetting", "canning", "jstor",
+        "ambigram",
     )
-    ranked = []
-
-    for page in pages.values():
-        infos = page.get("imageinfo") or []
-        if not infos:
-            continue
-        info = infos[0]
-        title_raw = page.get("title", "")
-        title = title_raw.replace("File:", "")
-        if ".pdf" in title_raw.lower():
-            continue
-        title_norm = normalize_text(title)
-        title_tokens = set(tokenize(title_norm))
-        if title_tokens & banned_title:
-            continue
-        if any(h in title_norm for h in harmful_title_sub):
-            continue
-        if int(info.get("width", 0) or 0) < 200 or int(info.get("height", 0) or 0) < 200:
-            continue
-
-        if gkind == "food" and gval:
-            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
-            needles.discard("")
-            if needles and not any(len(n) >= 2 and n in title_norm for n in needles):
-                continue
-        if gkind == "animal" and gval:
-            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
-            needles.discard("")
-            if needles and not any(n in title_norm for n in needles):
-                continue
-        if gkind == "color" and gval:
-            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
-            needles.discard("")
-            if needles and not any(n in title_norm for n in needles):
-                continue
-        if gkind == "celest" and gval:
-            needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
-            needles.discard("")
-            if needles and not any(n in title_norm for n in needles):
-                continue
-
-        overlap = len(match_tokens & title_tokens)
-        en_overlap = 0
-        for w in toks:
-            wn = normalize_text(w)
-            for enp in (
-                ALIMENTO_ES_A_EN.get(wn),
-                ANIMAL_ES_A_EN.get(wn),
-                COLOR_ES_A_EN.get(wn),
-                CELESTE_ES_A_EN.get(wn),
-            ):
-                if enp and str(enp) and normalize_text(str(enp)) in title_norm:
-                    en_overlap += 2
-        exact_bonus = 0
-        if first and first in title_norm:
-            exact_bonus = 4
-        if gloss_en_first and len(gloss_en_first) > 2 and gloss_en_first in title_norm:
-            exact_bonus = max(exact_bonus, 5)
-
-        score = overlap * 2 + en_overlap + exact_bonus
-        if cat_hint == "colores" and ("color" in title_tokens or "colour" in title_tokens):
-            score += 1
-        if (cat_hint == "animales" or first in ANIMAL_ES_A_EN) and "animal" in title_tokens:
-            score += 1
-        if (cat_hint == "alimentos" or first in ALIMENTO_ES_A_EN) and "food" in title_tokens:
-            score += 1
-
-        meta = info.get("extmetadata") or {}
-        candidate = {
-            "ok": True,
-            "query": q,
-            "title": title,
-            "image_url": info.get("thumburl") or info.get("url"),
-            "source_url": info.get("descriptionurl"),
-            "license": (meta.get("LicenseShortName") or {}).get("value", "desconocida"),
-            "author": (meta.get("Artist") or {}).get("value", "desconocido"),
-        }
-        if gkind is None:
-            has_anchor = (
-                (first and len(first) >= 3 and first in title_norm)
-                or overlap > 0
-                or en_overlap > 0
-                or exact_bonus >= 4
-            )
-            if not has_anchor:
-                continue
-        if score < 1 and (q_tokens and overlap == 0 and en_overlap == 0) and gkind is not None:
-            continue
-        ranked.append((score, candidate))
-
-    ranked.sort(key=lambda x: x[0], reverse=True)
     if gkind in ("food", "animal"):
-        min_score = 5
+        min_score_strict = 5
     elif gkind in ("color", "num", "celest"):
-        min_score = 4
+        min_score_strict = 4
     else:
-        min_score = 3
-    if ranked and ranked[0][0] >= min_score:
-        result = ranked[0][1]
-        _image_cache_set(cache_key, result)
-        return result
+        min_score_strict = 3
+
+    def _gloss_needles_ok(loose: bool, title_norm: str, needles: set[str]) -> bool:
+        if not needles:
+            return True
+        strict_ok = any(len(n) >= 2 and n in title_norm for n in needles)
+        if strict_ok:
+            return True
+        if not loose:
+            return False
+        if first and first in title_norm:
+            return True
+        return any(len(n) >= 3 and n in title_norm for n in needles)
+
+    def build_ranked(skip_harmful_substrings: bool, loose_gloss_needles: bool) -> list[tuple[int, dict]]:
+        ranked_local: list[tuple[int, dict]] = []
+        for page in pages.values():
+            infos = page.get("imageinfo") or []
+            if not infos:
+                continue
+            info = infos[0]
+            title_raw = page.get("title", "")
+            title = title_raw.replace("File:", "")
+            if ".pdf" in title_raw.lower():
+                continue
+            tl = title_raw.lower()
+            if tl.endswith(".gif") or tl.endswith(".svg"):
+                continue
+            title_norm = normalize_text(title)
+            title_tokens = set(tokenize(title_norm))
+            if title_tokens & banned_title:
+                continue
+            if not skip_harmful_substrings and any(h in title_norm for h in harmful_title_sub):
+                continue
+            if int(info.get("width", 0) or 0) < 200 or int(info.get("height", 0) or 0) < 200:
+                continue
+
+            if gkind == "food" and gval:
+                needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+                needles.discard("")
+                if needles and not _gloss_needles_ok(loose_gloss_needles, title_norm, needles):
+                    continue
+            if gkind == "animal" and gval:
+                needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+                needles.discard("")
+                if needles and not _gloss_needles_ok(loose_gloss_needles, title_norm, needles):
+                    continue
+            if gkind == "color" and gval:
+                needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+                needles.discard("")
+                if needles and not _gloss_needles_ok(loose_gloss_needles, title_norm, needles):
+                    continue
+            if gkind == "celest" and gval:
+                needles = {first} | {normalize_text(x) for x in str(gval).split() if len(normalize_text(x)) >= 2}
+                needles.discard("")
+                if needles and not _gloss_needles_ok(loose_gloss_needles, title_norm, needles):
+                    continue
+
+            overlap = len(match_tokens & title_tokens)
+            en_overlap = 0
+            for w in toks:
+                wn = normalize_text(w)
+                for enp in (
+                    ALIMENTO_ES_A_EN.get(wn),
+                    ANIMAL_ES_A_EN.get(wn),
+                    COLOR_ES_A_EN.get(wn),
+                    CELESTE_ES_A_EN.get(wn),
+                ):
+                    if enp and str(enp):
+                        en_full = normalize_text(str(enp))
+                        if en_full in title_norm:
+                            en_overlap += 2
+                        else:
+                            for part in en_full.split():
+                                if len(part) > 2 and part in title_norm:
+                                    en_overlap += 1
+                                    break
+            exact_bonus = 0
+            if first and first in title_tokens:
+                exact_bonus = 4
+            elif first and len(first) >= 5 and first in title_norm:
+                exact_bonus = 2
+            if gloss_en_first and len(gloss_en_first) > 2 and gloss_en_first in title_norm:
+                exact_bonus = max(exact_bonus, 5)
+
+            score = overlap * 2 + en_overlap + exact_bonus
+            if cat_hint == "colores" and ("color" in title_tokens or "colour" in title_tokens):
+                score += 1
+            if (cat_hint == "animales" or first in ANIMAL_ES_A_EN) and "animal" in title_tokens:
+                score += 1
+            if (cat_hint == "alimentos" or first in ALIMENTO_ES_A_EN) and "food" in title_tokens:
+                score += 1
+
+            meta = info.get("extmetadata") or {}
+            candidate = {
+                "ok": True,
+                "query": q,
+                "title": title,
+                "image_url": info.get("thumburl") or info.get("url"),
+                "source_url": info.get("descriptionurl"),
+                "license": (meta.get("LicenseShortName") or {}).get("value", "desconocida"),
+                "author": (meta.get("Artist") or {}).get("value", "desconocido"),
+            }
+            if gkind is None:
+                has_anchor = (
+                    (first and len(first) >= 3 and first in title_tokens)
+                    or overlap > 0
+                    or en_overlap > 0
+                    or exact_bonus >= 4
+                )
+                if not has_anchor:
+                    continue
+            if score < 1 and (q_tokens and overlap == 0 and en_overlap == 0) and gkind is not None:
+                continue
+            ranked_local.append((score, candidate))
+        ranked_local.sort(key=lambda x: x[0], reverse=True)
+        return ranked_local
+
+    # Paso 1: estricto. Paso 2: sin subtitulos dañinos. Paso 3: solo gloss (comida/animal/color/cielo):
+    # relaja agujas y umbral; no aplica a lexico general (evita "correr" -> Museo Correr).
+    if gkind is None:
+        passes = (
+            (False, False, min_score_strict),
+            (True, False, max(2, min_score_strict - 1)),
+        )
+    else:
+        passes = (
+            (False, False, min_score_strict),
+            (True, False, max(3, min_score_strict - 2)),
+            (True, True, 2),
+        )
+    for skip_harm, loose_needles, min_take in passes:
+        ranked = build_ranked(skip_harm, loose_needles)
+        if ranked and ranked[0][0] >= min_take:
+            result = ranked[0][1]
+            _image_cache_set(cache_key, result)
+            return result
 
     result = {"ok": False, "message": "no se encontro imagen adecuada"}
     _image_cache_set(cache_key, result)
