@@ -16,7 +16,6 @@ import {
   Dumbbell,
   Eye,
   FileSearch,
-  FileText,
   FolderOpen,
   Flame,
   GraduationCap,
@@ -28,7 +27,6 @@ import {
   Leaf,
   LifeBuoy,
   Lightbulb,
-  Lock,
   LogOut,
   Mail,
   Menu,
@@ -38,7 +36,6 @@ import {
   Palette,
   ShieldCheck,
   PenLine,
-  MessageSquare,
   Search,
   Send,
   Star,
@@ -61,19 +58,23 @@ import {
 } from 'lucide-react'
 import {
   ApiError,
+  authForgotPassword,
   authLogin,
   authLogout,
   authMe,
   authRegister,
+  authResetPassword,
   changeStudentPassword,
   deleteStudentAccount,
   getHealth,
   getStudentSessions,
   getStudentSettings,
   getStats,
+  getTeacherReportsSummary,
   saveStudentSettings,
   searchAVI,
 } from './api'
+import { PASSWORD_POLICY_HINT, validatePasswordStrength } from './passwordPolicy'
 import {
   AdminAuditoriaPanel,
   AdminContentPanel,
@@ -90,7 +91,6 @@ import {
   TeacherCalendarPanel,
   TeacherDashboard,
   TeacherGroupsPanel,
-  TeacherMessagesPanel,
   TeacherReportsPanel,
   TeacherResourcesPanel,
 } from './RoleScreens'
@@ -116,7 +116,6 @@ const NAV_REGISTRY = {
   docente_actividades: { labelKey: 'nav.docente_actividades', hintKey: 'navHint.docente_actividades', icon: PenLine },
   docente_reportes: { labelKey: 'nav.docente_reportes', hintKey: 'navHint.docente_reportes', icon: BarChart3 },
   docente_recursos: { labelKey: 'nav.docente_recursos', hintKey: 'navHint.docente_recursos', icon: FolderOpen },
-  docente_mensajes: { labelKey: 'nav.docente_mensajes', hintKey: 'navHint.docente_mensajes', icon: MessageSquare },
   docente_calendario: { labelKey: 'nav.docente_calendario', hintKey: 'navHint.docente_calendario', icon: Calendar },
   admin_usuarios: { labelKey: 'nav.admin_usuarios', hintKey: 'navHint.admin_usuarios', icon: Shield },
   admin_contenido: { labelKey: 'nav.admin_contenido', hintKey: 'navHint.admin_contenido', icon: ClipboardList },
@@ -141,7 +140,6 @@ const ROLE_NAV_IDS = {
     'docente_actividades',
     'docente_reportes',
     'docente_recursos',
-    'docente_mensajes',
     'docente_calendario',
     'diccionario',
     'configuracion',
@@ -166,6 +164,22 @@ const BOTTOM_NAV_ADMIN = ['inicio', 'admin_usuarios', 'admin_contenido', 'admin_
 const VALID_VIEWS = new Set(Object.keys(NAV_REGISTRY))
 const DOCENTE_CONTENT_VIEWS = new Set(['aprender', 'practicar', 'conversar'])
 const PREFERRED_CATEGORIES = ['comida', 'animales', 'saludos', 'colores', 'numeros', 'diccionario_general']
+
+function formatChatRecordType(rt) {
+  const r = String(rt || '').toLowerCase()
+  if (r === 'lexico') return 'Vocabulario'
+  if (r === 'dialogo') return 'Diálogo'
+  if (r === 'qa') return 'Pregunta / respuesta'
+  return r ? r : 'Texto'
+}
+
+function formatChatEvidenceSource(c) {
+  const sk = String(c.source_kind || '').toLowerCase()
+  const fn = String(c.fuente_nombre || '').trim()
+  if (!fn) return ''
+  if (sk.includes('sintetic') || fn.toLowerCase().includes('synthetic')) return 'Ejemplo pedagógico'
+  return fn.length > 44 ? `${fn.slice(0, 41)}…` : fn
+}
 
 const PROGRESS_WEEK_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
@@ -270,7 +284,15 @@ export default function App() {
     typeof window !== 'undefined' && !window.localStorage.getItem(SESSION_TOKEN_KEY),
   )
   const [authTab, setAuthTab] = useState('login')
+  /** Recuperar contraseña: 0 = pedir correo, 1 = código + nueva clave */
+  const [recoverStep, setRecoverStep] = useState(0)
+  const [recoverEmailInput, setRecoverEmailInput] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  /** Misma ruptura que bottom-nav (max 1024px = móvil): en escritorio el menú verde queda abierto. */
+  const [wideNavLayout, setWideNavLayout] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1025px)').matches : false,
+  )
+  const wideNavWasTrueRef = useRef(false)
   const [view, setView] = useState(getInitialView)
   const [health, setHealth] = useState(null)
   const [stats, setStats] = useState(null)
@@ -281,6 +303,8 @@ export default function App() {
   const [homeComposerText, setHomeComposerText] = useState('')
   const [chatContexts, setChatContexts] = useState([])
   const [dictionaryPreferredTab, setDictionaryPreferredTab] = useState(null)
+  /** Arranque desde Aprender: abre Practicar y dispara ejercicios del corpus (una vez por _bootKey). */
+  const [practiceFromLearn, setPracticeFromLearn] = useState(null)
   const [chatLang, setChatLang] = useState('nasa')
   const [settingsTab, setSettingsTab] = useState('general')
   const [regRole, setRegRole] = useState('estudiante')
@@ -305,19 +329,58 @@ export default function App() {
   const [consentGiven, setConsentGiven] = useState(true)
   const [showSessions, setShowSessions] = useState(false)
   const [studentSessions, setStudentSessions] = useState([])
+  const [dictionaryPersisted, setDictionaryPersisted] = useState([])
+  const [streakDays, setStreakDays] = useState(0)
+  const [streakWeekSlots, setStreakWeekSlots] = useState(() => [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ])
+  const [studentUiHydrated, setStudentUiHydrated] = useState(false)
   const settingsHydratedRef = useRef(false)
   const settingsSaveTimerRef = useRef(null)
+  const chatSaveTimerRef = useRef(null)
   const t = useMemo(() => createTranslator(profile.language), [profile.language])
 
   const categories = useMemo(() => {
     const dist = stats?.category_distribution || {}
     const keys = Object.keys(dist)
-    if (!keys.length) return PREFERRED_CATEGORIES
     const out = []
     for (const p of PREFERRED_CATEGORIES) if (!out.includes(p)) out.push(p)
     for (const k of keys.slice(0, 16)) if (!out.includes(k)) out.push(k)
-    return out
-  }, [stats])
+    for (const c of dictionaryPersisted) {
+      if (typeof c === 'string' && c.trim() && !out.includes(c)) out.push(c)
+    }
+    if (out.length) return out
+    if (dictionaryPersisted.length) return dictionaryPersisted.filter((c) => typeof c === 'string' && c.trim())
+    return PREFERRED_CATEGORIES
+  }, [stats, dictionaryPersisted])
+
+  useEffect(() => {
+    if (!auth.isLoggedIn) setStudentUiHydrated(false)
+  }, [auth.isLoggedIn])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const mq = window.matchMedia('(min-width: 1025px)')
+    const sync = () => setWideNavLayout(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  useEffect(() => {
+    if (wideNavWasTrueRef.current && !wideNavLayout) {
+      setMobileNavOpen(false)
+    }
+    wideNavWasTrueRef.current = wideNavLayout
+  }, [wideNavLayout])
+
+  const sidebarOpen = wideNavLayout || mobileNavOpen
 
   const navItems = useMemo(() => {
     const role = auth.role === 'docente' || auth.role === 'administrador' ? auth.role : 'estudiante'
@@ -349,6 +412,7 @@ export default function App() {
   }, [bottomNavIds, auth.role])
 
   const consumePreferredDictTab = useCallback(() => setDictionaryPreferredTab(null), [])
+  const consumePracticeFromLearn = useCallback(() => setPracticeFromLearn(null), [])
 
   const isSettingsSectionVisible = useCallback(
     (section) => settingsTab === 'general' || settingsTab === section,
@@ -365,10 +429,17 @@ export default function App() {
   const handleChangePassword = useCallback(() => {
     const current = window.prompt('Escribe tu contraseña actual (opcional en demo):', '')
     if (current == null) return
-    const next = window.prompt('Escribe tu nueva contraseña (minimo 8 caracteres):', '')
+    const next = window.prompt(`Nueva contraseña (${PASSWORD_POLICY_HINT})`, '')
     if (next == null) return
-    if (String(next).trim().length < 8) {
-      notify('La contraseña debe tener al menos 8 caracteres.')
+    const next2 = window.prompt('Confirma la nueva contraseña:', '')
+    if (next2 == null) return
+    if (String(next).trim() !== String(next2).trim()) {
+      notify('Las contraseñas no coinciden.')
+      return
+    }
+    const pwErrs = validatePasswordStrength(next)
+    if (pwErrs.length) {
+      notify(pwErrs.join(' '))
       return
     }
     const token = window.localStorage.getItem(SESSION_TOKEN_KEY)
@@ -418,16 +489,6 @@ export default function App() {
       .catch((e) => notify(e?.message || 'No se pudo eliminar la cuenta.'))
   }, [notify])
 
-  const handleOpenPrivacyPolicy = useCallback(() => {
-    const pop = window.open('', '_blank', 'noopener,noreferrer')
-    if (pop) {
-      pop.document.title = 'Politica de privacidad - Nasa Yuwe AVI'
-      pop.document.body.innerHTML =
-        '<main style="font-family:Arial,sans-serif;padding:20px;line-height:1.5;color:#1d271e"><h1>Politica de privacidad</h1><p>Solo usamos tus datos para personalizar aprendizaje, progreso y experiencia dentro de la plataforma.</p><p>Puedes solicitar eliminación o exportación de datos desde Configuración.</p></main>'
-    }
-    notify('Se abrió la política de privacidad.')
-  }, [notify])
-
   const handleToggleSessions = useCallback(() => {
     const next = !showSessions
     setShowSessions(next)
@@ -473,11 +534,32 @@ export default function App() {
             tips: !!s.notifications.tips,
           })
         }
+        if (s.streak && typeof s.streak.current === 'number') {
+          setStreakDays(Math.max(0, s.streak.current))
+          if (Array.isArray(s.streak.week_slots) && s.streak.week_slots.length === 7) {
+            setStreakWeekSlots(s.streak.week_slots.map((x) => !!x))
+          }
+        }
+        if (Array.isArray(s.dictionary_last_categories) && s.dictionary_last_categories.length) {
+          setDictionaryPersisted(s.dictionary_last_categories.map((x) => String(x)))
+        }
+        if (Array.isArray(s.avi_chat_messages) && s.avi_chat_messages.length) {
+          setMessages(
+            s.avi_chat_messages.map((m) => ({
+              role: m.role === 'avi' ? 'avi' : 'user',
+              text: String(m.text || ''),
+              at: m.at ? String(m.at) : '',
+              audio: !!m.audio,
+            })),
+          )
+        }
         setConsentGiven(s.consent_given !== false)
         setStudentSessions(sess?.sessions || [])
         settingsHydratedRef.current = true
+        setStudentUiHydrated(true)
       } catch {
         settingsHydratedRef.current = true
+        setStudentUiHydrated(true)
       }
     })()
     return () => {
@@ -499,6 +581,7 @@ export default function App() {
         reminders: !!profile.reminders,
         notifications: notifPrefs,
         consent_given: !!consentGiven,
+        dictionary_last_categories: categories,
       }).catch(() => {
         /* ignore transient errors */
       })
@@ -514,7 +597,26 @@ export default function App() {
     profile.reminders,
     notifPrefs,
     consentGiven,
+    categories,
   ])
+
+  useEffect(() => {
+    if (!auth.isLoggedIn || auth.role !== 'estudiante' || !settingsHydratedRef.current || !studentUiHydrated)
+      return undefined
+    const token = window.localStorage.getItem(SESSION_TOKEN_KEY)
+    if (!token) return undefined
+    window.clearTimeout(chatSaveTimerRef.current)
+    chatSaveTimerRef.current = window.setTimeout(() => {
+      const cleaned = messages.slice(-60).map((m) => ({
+        role: m.role === 'avi' ? 'avi' : 'user',
+        text: String(m.text || '').slice(0, 8000),
+        ...(m.at ? { at: String(m.at).slice(0, 80) } : {}),
+        ...(m.audio ? { audio: true } : {}),
+      }))
+      saveStudentSettings(token, { avi_chat_messages: cleaned }).catch(() => {})
+    }, 650)
+    return () => window.clearTimeout(chatSaveTimerRef.current)
+  }, [messages, auth.isLoggedIn, auth.role, studentUiHydrated])
 
   useEffect(() => {
     let cancelled = false
@@ -639,6 +741,14 @@ export default function App() {
     if (opts?.dictTab != null) {
       setDictionaryPreferredTab(opts.dictTab)
     }
+    if (opts?.practiceFromLearn != null) {
+      const pl = opts.practiceFromLearn
+      setPracticeFromLearn({
+        category: pl.category,
+        tabId: pl.tabId,
+        _bootKey: pl._bootKey ?? Date.now(),
+      })
+    }
     setView(canon)
     window.history.replaceState(null, '', `#${canon}`)
   }, [])
@@ -665,7 +775,7 @@ export default function App() {
 
   async function submitLogin(ev) {
     ev.preventDefault()
-    const email = String(profile.email || '').trim()
+    const email = String(ev.target.email?.value || profile.email || '').trim()
     const password = ev.target.password?.value || ''
     if (!email || !password) {
       notify(t('login.emptyFields') || 'Completa correo y contraseña')
@@ -691,6 +801,19 @@ export default function App() {
       notify('Completa nombre, correo y contraseña.')
       return
     }
+    if (password.length > 256 || password_confirm.length > 256) {
+      notify('La contraseña es demasiado larga.')
+      return
+    }
+    if (password !== password_confirm) {
+      notify('Las contraseñas no coinciden.')
+      return
+    }
+    const pwErrs = validatePasswordStrength(password)
+    if (pwErrs.length) {
+      notify(pwErrs.join(' '))
+      return
+    }
     try {
       const payload = await authRegister({
         email,
@@ -699,8 +822,71 @@ export default function App() {
         display_name,
         role: regRole,
       })
-      applySession(payload)
-      notify(payload.message || 'Cuenta creada.')
+      if (payload.token) {
+        applySession(payload)
+        notify(payload.message || 'Cuenta creada.')
+      } else {
+        notify(payload.message || 'Cuenta registrada. Ahora inicia sesión con tu correo y contraseña.')
+        setAuthTab('login')
+        setRecoverStep(0)
+        ev.target.reset()
+      }
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : String(err))
+    }
+  }
+
+  async function submitForgotEmail(ev) {
+    ev.preventDefault()
+    const em = String(ev.target.email?.value || '').trim()
+    if (!em) {
+      notify(t('login.forgotNeedEmail'))
+      return
+    }
+    try {
+      const res = await authForgotPassword({ email: em })
+      setRecoverEmailInput(em)
+      if (res.reset_code) {
+        notify(t('login.resetCodeDemo', { code: res.reset_code }))
+      } else {
+        notify(res.message || t('login.forgotGenericOk'))
+      }
+      setRecoverStep(1)
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : String(err))
+    }
+  }
+
+  async function submitRecoverPassword(ev) {
+    ev.preventDefault()
+    const fd = new FormData(ev.target)
+    const code = String(fd.get('code') || '').trim()
+    const password = String(fd.get('password') || '')
+    const password_confirm = String(fd.get('password_confirm') || '')
+    if (!code || !password) {
+      notify(t('login.resetNeedFields'))
+      return
+    }
+    if (password !== password_confirm) {
+      notify(t('login.resetPassMismatch'))
+      return
+    }
+    const pwErrs = validatePasswordStrength(password)
+    if (pwErrs.length) {
+      notify(pwErrs.join(' '))
+      return
+    }
+    try {
+      await authResetPassword({
+        email: recoverEmailInput,
+        code,
+        password,
+        password_confirm,
+      })
+      notify(t('login.resetSuccess'))
+      setRecoverStep(0)
+      setAuthTab('login')
+      ev.target.reset()
     } catch (err) {
       notify(err instanceof ApiError ? err.message : String(err))
     }
@@ -732,7 +918,6 @@ export default function App() {
     setQuery('')
   }, [])
 
-  const streakDays = 7
   /** Donut en inicio — alineado al mockup; se puede enlazar a stats mas adelante. */
   const homeDonutPct = 65
 
@@ -762,97 +947,205 @@ export default function App() {
               </div>
 
               <div className="login-card-wrap">
-                <div className="login-tabs">
-                  <button
-                    type="button"
-                    className={`login-tab${authTab === 'login' ? ' active' : ''}`}
-                    onClick={() => setAuthTab('login')}
-                  >
-                    {t('login.submit')}
-                  </button>
-                  <button
-                    type="button"
-                    className={`login-tab${authTab === 'create' ? ' active' : ''}`}
-                    onClick={() => setAuthTab('create')}
-                  >
-                    Crea tu cuenta
-                  </button>
-                </div>
-                <div className="login-diamonds" aria-hidden>
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                {authTab === 'login' ? (
+                {authTab === 'recover' ? (
                   <>
-                    <h2 className="login-title">Bienvenida</h2>
-                    <p className="login-sub">Únete a nuestra comunidad de aprendizaje</p>
-                    <form className="login-form" onSubmit={submitLogin}>
-                      <div className="field">
-                        <label htmlFor="login-email">{t('login.email')}</label>
-                        <div className="input-icon-wrap">
-                          <User size={18} />
-                          <input
-                            id="login-email"
-                            name="email"
-                            type="email"
-                            placeholder="correo@ejemplo.com"
-                            defaultValue={profile.email}
-                            onBlur={(e) => setProfile((p) => ({ ...p, email: e.target.value }))}
-                            required
-                          />
+                    <button
+                      type="button"
+                      className="login-back-link"
+                      onClick={() => {
+                        setAuthTab('login')
+                        setRecoverStep(0)
+                      }}
+                    >
+                      {t('login.recoverBack')}
+                    </button>
+                    <h2 className="login-title">
+                      {recoverStep === 0 ? t('login.recoverTitle') : t('login.recoverTitleNew')}
+                    </h2>
+                    <p className="login-sub">
+                      {recoverStep === 0
+                        ? t('login.recoverSub0')
+                        : t('login.recoverSub1', { email: recoverEmailInput })}
+                    </p>
+                    {recoverStep === 0 ? (
+                      <form className="login-form" onSubmit={submitForgotEmail}>
+                        <div className="field">
+                          <label htmlFor="forgot-email">{t('login.email')}</label>
+                          <div className="input-icon-wrap">
+                            <User size={18} />
+                            <input
+                              id="forgot-email"
+                              name="email"
+                              type="email"
+                              required
+                              autoComplete="email"
+                              defaultValue={recoverEmailInput || profile.email || ''}
+                            />
+                          </div>
                         </div>
-                      </div>
-                      <div className="field">
-                        <label htmlFor="login-pass">{t('login.password')}</label>
-                        <div className="input-icon-wrap">
-                          <Sparkles size={18} />
-                          <input id="login-pass" name="password" type="password" minLength={8} required />
+                        <button type="submit" className="login-submit">
+                          {t('login.recoverContinue')}
+                        </button>
+                      </form>
+                    ) : (
+                      <form className="login-form" onSubmit={submitRecoverPassword}>
+                        <div className="field">
+                          <label htmlFor="reset-code">{t('login.recoverCodeLabel')}</label>
+                          <div className="input-icon-wrap">
+                            <KeyRound size={18} />
+                            <input
+                              id="reset-code"
+                              name="code"
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]{6}"
+                              maxLength={6}
+                              required
+                              autoComplete="one-time-code"
+                            />
+                          </div>
                         </div>
-                      </div>
-                      <button type="submit" className="login-submit">
-                        {t('login.submit')}
-                      </button>
-                    </form>
+                        <div className="field">
+                          <label htmlFor="reset-pass">{t('login.recoverNewPass')}</label>
+                          <div className="input-icon-wrap">
+                            <Sparkles size={18} />
+                            <input id="reset-pass" name="password" type="password" minLength={10} required autoComplete="new-password" />
+                          </div>
+                        </div>
+                        <div className="field">
+                          <label htmlFor="reset-pass2">{t('login.recoverConfirmPass')}</label>
+                          <div className="input-icon-wrap">
+                            <Sparkles size={18} />
+                            <input id="reset-pass2" name="password_confirm" type="password" minLength={10} required autoComplete="new-password" />
+                          </div>
+                        </div>
+                        <p className="login-policy-hint">{PASSWORD_POLICY_HINT}</p>
+                        <button type="submit" className="login-submit">
+                          {t('login.recoverSave')}
+                        </button>
+                      </form>
+                    )}
                   </>
                 ) : (
                   <>
-                    <h2 className="login-title">Crea tu cuenta</h2>
-                    <p className="login-sub">Únete a nuestra comunidad de aprendizaje</p>
-                    <form className="login-form" onSubmit={submitRegister}>
-                      <div className="field">
-                        <label htmlFor="reg-name">{t('login.name')}</label>
-                        <div className="input-icon-wrap">
-                          <User size={18} />
-                          <input id="reg-name" name="display_name" type="text" minLength={2} required />
-                        </div>
-                      </div>
-                      <div className="field">
-                        <label htmlFor="reg-email">{t('login.email')}</label>
-                        <div className="input-icon-wrap">
-                          <User size={18} />
-                          <input id="reg-email" name="email" type="email" required />
-                        </div>
-                      </div>
-                      <div className="field">
-                        <label htmlFor="reg-role">Rol</label>
-                        <select id="reg-role" value={regRole} onChange={(e) => setRegRole(e.target.value)}>
-                          <option value="estudiante">Estudiante</option>
-                          <option value="docente">Docente</option>
-                        </select>
-                      </div>
-                      <div className="field">
-                        <label htmlFor="reg-pass">{t('login.password')}</label>
-                        <input id="reg-pass" name="password" type="password" minLength={8} required />
-                      </div>
-                      <div className="field">
-                        <label htmlFor="reg-pass2">Confirmar contraseña</label>
-                        <input id="reg-pass2" name="password_confirm" type="password" minLength={8} required />
-                      </div>
-                      <button type="submit" className="login-submit">
-                        Registrarme
+                    <div className="login-tabs">
+                      <button
+                        type="button"
+                        className={`login-tab${authTab === 'login' ? ' active' : ''}`}
+                        onClick={() => {
+                          setAuthTab('login')
+                          setRecoverStep(0)
+                        }}
+                      >
+                        {t('login.tabLogin')}
                       </button>
-                    </form>
+                      <button
+                        type="button"
+                        className={`login-tab${authTab === 'create' ? ' active' : ''}`}
+                        onClick={() => {
+                          setAuthTab('create')
+                          setRecoverStep(0)
+                        }}
+                      >
+                        {t('login.tabRegister')}
+                      </button>
+                    </div>
+                    <div className="login-diamonds" aria-hidden>
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                    {authTab === 'login' ? (
+                      <>
+                        <h2 className="login-title">{t('login.title')}</h2>
+                        <p className="login-sub">{t('login.subtitle')}</p>
+                        <form className="login-form" onSubmit={submitLogin}>
+                          <div className="field">
+                            <label htmlFor="login-email">{t('login.email')}</label>
+                            <div className="input-icon-wrap">
+                              <User size={18} />
+                              <input
+                                id="login-email"
+                                name="email"
+                                type="email"
+                                placeholder="correo@ejemplo.com"
+                                defaultValue={profile.email}
+                                onBlur={(e) => setProfile((p) => ({ ...p, email: e.target.value }))}
+                                required
+                              />
+                            </div>
+                          </div>
+                          <div className="field">
+                            <label htmlFor="login-pass">{t('login.password')}</label>
+                            <div className="input-icon-wrap">
+                              <Sparkles size={18} />
+                              <input id="login-pass" name="password" type="password" minLength={10} required autoComplete="current-password" />
+                            </div>
+                          </div>
+                          <div className="login-recover-row">
+                            <button
+                              type="button"
+                              className="login-recover-btn"
+                              onClick={() => {
+                                setAuthTab('recover')
+                                setRecoverStep(0)
+                              }}
+                            >
+                              {t('login.recoverPassword')}
+                            </button>
+                          </div>
+                          <button type="submit" className="login-submit">
+                            {t('login.submit')}
+                          </button>
+                        </form>
+                      </>
+                    ) : (
+                      <>
+                        <h2 className="login-title">{t('login.tabRegister')}</h2>
+                        <p className="login-sub">{t('login.subtitle')}</p>
+                        <form className="login-form" onSubmit={submitRegister}>
+                          <div className="field">
+                            <label htmlFor="reg-name">{t('login.name')}</label>
+                            <div className="input-icon-wrap">
+                              <User size={18} />
+                              <input id="reg-name" name="display_name" type="text" minLength={2} required />
+                            </div>
+                          </div>
+                          <div className="field">
+                            <label htmlFor="reg-email">{t('login.email')}</label>
+                            <div className="input-icon-wrap">
+                              <User size={18} />
+                              <input id="reg-email" name="email" type="email" required autoComplete="email" />
+                            </div>
+                          </div>
+                          <div className="field">
+                            <label htmlFor="reg-role">Rol</label>
+                            <select id="reg-role" value={regRole} onChange={(e) => setRegRole(e.target.value)}>
+                              <option value="estudiante">Estudiante</option>
+                              <option value="docente">Docente</option>
+                            </select>
+                          </div>
+                          <div className="field">
+                            <label htmlFor="reg-pass">{t('login.password')}</label>
+                            <div className="input-icon-wrap">
+                              <Sparkles size={18} />
+                              <input id="reg-pass" name="password" type="password" minLength={10} required autoComplete="new-password" />
+                            </div>
+                          </div>
+                          <div className="field">
+                            <label htmlFor="reg-pass2">Confirmar contraseña</label>
+                            <div className="input-icon-wrap">
+                              <Sparkles size={18} />
+                              <input id="reg-pass2" name="password_confirm" type="password" minLength={10} required autoComplete="new-password" />
+                            </div>
+                          </div>
+                          <p className="login-policy-hint">{PASSWORD_POLICY_HINT}</p>
+                          <button type="submit" className="login-submit">
+                            Registrarme
+                          </button>
+                        </form>
+                      </>
+                    )}
                   </>
                 )}
                 {notice ? <p className="login-notice">{notice}</p> : null}
@@ -867,9 +1160,9 @@ export default function App() {
   return (
     <div className={`app-frame app-frame--${auth.role || 'estudiante'}`}>
       <aside
-        className={`sidebar${mobileNavOpen ? ' is-open' : ''}`}
+        className={`sidebar${sidebarOpen ? ' is-open' : ''}`}
         id="avi-app-drawer"
-        aria-hidden={!mobileNavOpen}
+        aria-hidden={!sidebarOpen}
       >
         <div className="brand">
           <button
@@ -929,8 +1222,12 @@ export default function App() {
               type="button"
               className="topbar-global-menu-btn menu-toggle"
               onClick={() => setMobileNavOpen(true)}
-              aria-label={mobileNavOpen ? 'Menú lateral abierto. Cierra con el botón X en la barra verde.' : 'Abrir menú principal'}
-              aria-expanded={mobileNavOpen}
+              aria-label={
+                sidebarOpen
+                  ? 'Menú lateral abierto. Cierra con el botón X en la barra verde.'
+                  : 'Abrir menú principal'
+              }
+              aria-expanded={sidebarOpen}
               aria-controls="avi-app-drawer"
             >
               <Menu size={22} strokeWidth={2.2} />
@@ -982,7 +1279,23 @@ export default function App() {
                   <button
                     type="button"
                     className="topbar-bell-btn"
-                    onClick={() => notify(t('teacher.bellSoon'))}
+                    onClick={async () => {
+                      try {
+                        const tok =
+                          typeof window !== 'undefined' ? window.localStorage.getItem(SESSION_TOKEN_KEY) : ''
+                        const s = await getTeacherReportsSummary(tok, 30)
+                        const tot = s?.totals || {}
+                        notify(
+                          t('teacher.bellDigest', {
+                            g: tot.groups ?? 0,
+                            st: tot.students_in_groups ?? 0,
+                            aw: tot.group_assignments_window ?? 0,
+                          }),
+                        )
+                      } catch {
+                        notify(t('teacher.loadErr'))
+                      }
+                    }}
                     aria-label="Notificaciones"
                   >
                     <Bell size={21} strokeWidth={2} />
@@ -1034,6 +1347,8 @@ export default function App() {
             category={category}
             categories={categories}
             setCategory={setCategory}
+            practiceFromLearn={practiceFromLearn}
+            onConsumePracticeFromLearn={consumePracticeFromLearn}
           />
         )}
         {view === 'docente_grupos' && (
@@ -1047,9 +1362,6 @@ export default function App() {
         )}
         {view === 'docente_recursos' && (
           <TeacherResourcesPanel t={t} navigateHome={() => navigateTo('inicio')} navigateTo={navigateTo} />
-        )}
-        {view === 'docente_mensajes' && (
-          <TeacherMessagesPanel t={t} notify={notify} navigateHome={() => navigateTo('inicio')} />
         )}
         {view === 'docente_calendario' && (
           <TeacherCalendarPanel t={t} notify={notify} navigateHome={() => navigateTo('inicio')} setView={navigateTo} />
@@ -1206,7 +1518,7 @@ export default function App() {
                 <h3>{t('home.streakPanel')}</h3>
                 <div className="streak-week streak-week--full">
                   {PROGRESS_WEEK_LABELS.map((d, i) => (
-                    <span key={d} className={`streak-slot${i < 6 ? ' done' : ''}`}>
+                    <span key={d} className={`streak-slot${streakWeekSlots[i] ? ' done' : ''}`}>
                       <span className="streak-dot" />
                       <span className="streak-label">{d.slice(0, 3)}</span>
                     </span>
@@ -1385,13 +1697,12 @@ export default function App() {
                     <div className="chat-evidence-list chat-evidence-list--rail">
                       {chatContexts.map((c, idx) => (
                         <article key={c.id != null ? String(c.id) : `ctx-${idx}`} className="chat-context-card">
-                          <span className="chat-context-type">{String(c.record_type || 'corpus')}</span>
+                          <span className="chat-context-type">{formatChatRecordType(c.record_type)}</span>
                           <strong className="chat-context-nasa">{c.nasa_yuwe}</strong>
                           <p className="chat-context-es">{c.espanol}</p>
                           <small className="chat-context-meta">
                             {c.categoria}
-                            {c.fuente_nombre ? ` · ${c.fuente_nombre}` : ''}
-                            {typeof c.score === 'number' ? ` · ${c.score}` : ''}
+                            {formatChatEvidenceSource(c) ? ` · ${formatChatEvidenceSource(c)}` : ''}
                           </small>
                         </article>
                       ))}
@@ -1592,9 +1903,13 @@ export default function App() {
                   </div>
                   <div className="progress-week-mini" role="list">
                     {PROGRESS_WEEK_LABELS.map((d, idx) => (
-                      <span key={d} role="listitem" className={idx === 6 ? 'week-off' : 'week-on'}>
+                      <span
+                        key={d}
+                        role="listitem"
+                        className={streakWeekSlots[idx] ? 'week-on' : 'week-off'}
+                      >
                         <small>{d}</small>
-                        {idx === 6 ? <span className="week-dot" /> : <Check size={14} aria-hidden />}
+                        {streakWeekSlots[idx] ? <Check size={14} aria-hidden /> : <span className="week-dot" />}
                       </span>
                     ))}
                   </div>
@@ -1917,13 +2232,6 @@ export default function App() {
                   <h4>Datos y privacidad</h4>
                   <button type="button" onClick={handleDownloadData}>
                     <Download size={14} /> Descargar mis datos <ChevronRight size={14} />
-                  </button>
-                  <button type="button" onClick={() => setConsentGiven((v) => !v)}>
-                    <Lock size={14} /> Gestionar consentimiento <ChevronRight size={14} />
-                  </button>
-                  <p className="settings-inline-note">Consentimiento: {consentGiven ? 'Activo' : 'Pausado'}</p>
-                  <button type="button" onClick={handleOpenPrivacyPolicy}>
-                    <FileText size={14} /> Politica de privacidad <ChevronRight size={14} />
                   </button>
                 </section>
               </aside>

@@ -524,6 +524,136 @@ def fetch_commons_image(query: str, category: str = ""):
     return result
 
 
+def _chat_pick_variant(query_norm: str, options: tuple[str, ...]) -> str:
+    if not options:
+        return ""
+    i = sum(ord(c) for c in query_norm) % len(options)
+    return options[i]
+
+
+def _looks_like_meta_spanish_gloss(es: str) -> bool:
+    """Preguntas tipo 'como se dice X' en la ficha espanola (no sirven como etiqueta al usuario)."""
+    n = normalize_text(es or "")
+    return "como se dice" in n or n.startswith("traduce ") or "traduccion" in n
+
+
+def compose_avi_chat_answer(
+    query_norm: str,
+    q_tokens: list[str],
+    contexts: list[dict],
+    *,
+    translation_intent: bool,
+) -> str:
+    """
+    Texto del tutor AVI para la vista 'Conversar': tono cercano, sin exponer metadatos tecnicos
+    (fuente sintetica, tipo de registro, etc.) en el cuerpo del mensaje.
+    """
+    ts = set(q_tokens)
+    best = contexts[0]
+    es = (best.get("espanol") or "").strip()
+    ny = (best.get("nasa_yuwe") or "").strip()
+    rt = (best.get("record_type") or "").strip().lower()
+
+    def pair_block() -> str:
+        if ny and es and _looks_like_meta_spanish_gloss(es):
+            return f"Para saludar en Nasa Yuwe puedes usar: {ny}"
+        parts = []
+        if ny:
+            parts.append(f"Nasa Yuwe: {ny}")
+        if es and not _looks_like_meta_spanish_gloss(es):
+            parts.append(f"Español (referencia): {es}")
+        elif es and _looks_like_meta_spanish_gloss(es) and not ny:
+            parts.append(f"Referencia: {es}")
+        return (
+            "\n".join(parts)
+            if parts
+            else "Te sugiero nombrar un tema concreto (familia, saludo, numeros, colores) o una sola palabra que quieras aprender."
+        )
+
+    wants_hi = (
+        query_norm.strip() in ("hola", "buenas", "hey", "ei")
+        or any(p in query_norm for p in ("buenos dias", "buenas tardes", "buenas noches", "buen dia", "buena tarde"))
+        or ("hola" in ts and len(ts) <= 4)
+        or (
+            "saludo" in query_norm
+            and bool({"como", "cual", "dime", "ensena", "explica", "ayuda", "quiero", "necesito"} & ts)
+        )
+    )
+    wants_thanks = "gracias" in query_norm or "agradec" in query_norm or "mil gracias" in query_norm
+    wants_bye = any(
+        p in query_norm for p in ("adios", "hasta luego", "nos vemos", "chao", "chau", "hasta pronto", "me voy")
+    )
+
+    if wants_bye:
+        return _chat_pick_variant(
+            query_norm,
+            (
+                "Ha sido un gusto acompañarte en esta sesión. Sigue practicando con calma; el idioma se abre poco a poco.\n\n"
+                "Cuando quieras volver, aquí estaré.",
+                "Nos leemos pronto. Recuerda: una frase corta al día suma muchísimo.\n\n"
+                "Hasta la próxima.",
+            ),
+        )
+
+    if wants_thanks:
+        return (
+            "De nada, con gusto.\n\n"
+            f"Por si te sirve retenerlo, esto es lo que mejor encaja con lo que venías comentando:\n\n"
+            f"{pair_block()}\n\n"
+            "Si quieres profundizar, dime en qué situación real lo usarías (colegio, casa, saludo a un adulto…) y lo afinamos."
+        )
+
+    if rt == "dialogo":
+        return (
+            "Te dejo una idea clara, tomada del material del curso, para que la uses como modelo:\n\n"
+            f"{pair_block()}\n\n"
+            "Léela en voz alta una vez en español y otra vez fijándote en la parte en Nasa Yuwe. "
+            "Luego inventa una variación mínima: cambia solo un detalle (quién habla, el lugar, el momento del día)."
+        )
+
+    if translation_intent or "como se dice" in query_norm or "traduce" in query_norm or "traduccion" in query_norm:
+        return (
+            "Claro. Así lo tienes en la ficha que mejor coincide con tu pregunta:\n\n"
+            f"{pair_block()}\n\n"
+            "Practica primero la forma en Nasa Yuwe sola, y cuando te salga fluida, métela en una frase de tres a siete palabras. "
+            "Si me dices el contexto (formal o informal), te propongo una mini conversación."
+        )
+
+    if wants_hi:
+        opener = _chat_pick_variant(
+            query_norm,
+            (
+                "Hola, qué gusto que sigas aquí.",
+                "Buen momento para practicar; vamos con calma.",
+                "Hola. Me alegra leerte; seguimos paso a paso.",
+            ),
+        )
+        return (
+            f"{opener}\n\n"
+            "Sobre lo que preguntas, esto es lo que mejor encaja con el material que tenemos a mano:\n\n"
+            f"{pair_block()}\n\n"
+            "Úsalo como saludo o presentación breve, y si quieres un tono más formal o más cercano, dímelo y lo ajustamos."
+        )
+
+    second = contexts[1] if len(contexts) > 1 else None
+    extra = ""
+    if second:
+        s_es = (second.get("espanol") or "").strip()
+        s_ny = (second.get("nasa_yuwe") or "").strip()
+        if (s_es or s_ny) and (s_es != es or s_ny != ny):
+            lines2 = [f"Nasa Yuwe: {s_ny or '—'}"]
+            if s_es and not _looks_like_meta_spanish_gloss(s_es):
+                lines2.append(f"Español: {s_es}")
+            extra = "\n\nTambién podría relacionarse con esto:\n" + "\n".join(lines2)
+
+    return (
+        "Te resumo de forma directa, sin rodeos:\n\n"
+        f"{pair_block()}\n\n"
+        "Piensa en tres pasos: reconoce la forma en Nasa Yuwe, conéctala con lo que ya dices en español, "
+        "y por último úsala en una frase corta que tú mismo inventes." + extra
+    )
+
+
 class CorpusEngine:
     """
     AVI engine with lightweight optimization:
@@ -689,7 +819,7 @@ class CorpusEngine:
     def ask(self, query: str, top_k=5):
         query_norm = normalize_text(query)
         if not query_norm:
-            return {"answer": "Por favor escribe una pregunta.", "contexts": []}
+            return {"answer": "Escribe una pregunta o una palabra y te respondo en seguida.", "contexts": []}
 
         cached = self._cached(query_norm)
         if cached:
@@ -733,7 +863,10 @@ class CorpusEngine:
                 direct_target = normalize_text(m2.group(1))
         if not cand:
             data = {
-                "answer": "No encontre contexto suficiente en el corpus. Intenta con una pregunta mas especifica.",
+                "answer": (
+                    "Todavia no tengo una pista clara con las palabras que usaste. "
+                    "Prueba con un tema concreto (por ejemplo: saludos, familia, numeros, colores) o con una sola palabra que quieras aprender."
+                ),
                 "contexts": [],
                 "meta": {"cache_hit": False, "candidates": 0},
             }
@@ -777,25 +910,19 @@ class CorpusEngine:
                 }
             )
 
-        # Tutor response template
         best = contexts[0] if contexts else None
-        if best and best.get("record_type") == "dialogo":
-            answer = (
-                "Encontré un diálogo pedagógico útil para practicar: "
-                f"{best['nasa_yuwe']} "
-                f"Referencia en español: {best['espanol']} "
-                f"Fuente: {best['fuente_nombre']} ({best.get('source_kind', 'sin tipo')})."
-            )
-        elif best:
-            answer = (
-                f"En el corpus encuentro como referencia principal: "
-                f"'{best['espanol']}' -> '{best['nasa_yuwe']}'. "
-                f"Categoria: {best['categoria']}. "
-                f"Fuente: {best['fuente_nombre']} ({best.get('source_kind', 'sin tipo')}). "
-                f"Te sugiero practicar esta expresion en una frase corta y comparar con los ejemplos mostrados."
+        if best:
+            answer = compose_avi_chat_answer(
+                query_norm,
+                q_tokens,
+                contexts,
+                translation_intent=translation_intent,
             )
         else:
-            answer = "No encontre una respuesta confiable en el corpus."
+            answer = (
+                "No tengo una coincidencia segura con esa pregunta. "
+                "Reformula con otra palabra o dime si buscas saludo, despedida, familia, numeros… y lo intentamos de nuevo."
+            )
 
         data = {
             "answer": answer,

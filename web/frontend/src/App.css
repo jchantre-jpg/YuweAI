@@ -345,6 +345,68 @@ button {
   font-size: 0.88rem;
 }
 
+.login-back-link {
+  display: block;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2f6f4a;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.login-policy-hint {
+  font-size: 0.8rem;
+  color: #555;
+  margin: -0.25rem 0 0.75rem;
+  line-height: 1.35;
+}
+
+.login-forgot-row {
+  margin-top: 0.65rem;
+  text-align: center;
+}
+
+.login-forgot-btn {
+  border: none;
+  background: none;
+  color: #2f6f4a;
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-decoration: underline;
+}
+
+.login-recover-row {
+  margin: 0.1rem 0 0.55rem;
+  text-align: right;
+}
+
+.login-recover-btn {
+  border: none;
+  background: none;
+  color: #1a5c38;
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0.2rem 0;
+}
+
+.login-recover-btn:hover,
+.login-recover-btn:focus-visible {
+  color: #0f3d26;
+}
+
+.login-recover-btn:focus-visible {
+  outline: 2px solid rgba(47, 111, 74, 0.45);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .login-boot-text {
   text-align: center;
   padding: 3rem;
@@ -446,6 +508,17 @@ button {
 
 .sidebar-close-btn:hover {
   background: rgba(255, 255, 255, 0.14);
+}
+
+@media (min-width: 1025px) {
+  .app-frame .sidebar-close-btn,
+  .app-frame .topbar-global-menu-btn.menu-toggle {
+    display: none !important;
+  }
+
+  .app-frame .brand {
+    padding-left: 0.35rem;
+  }
 }
 
 .brand {
@@ -2640,8 +2713,9 @@ button {
 
 .chat-mock-msg-text {
   margin: 0;
-  line-height: 1.5;
-  font-size: 0.93rem;
+  line-height: 1.55;
+  font-size: 0.95rem;
+  white-space: pre-line;
 }
 
 .chat-mock-bubble-user {
@@ -3046,8 +3120,220 @@ button {
   gap: 0.85rem;
 }
 
+.practice-free-panel--corpus {
+  border-color: rgba(47, 111, 74, 0.22);
+}
+
+.practice-corpus-modes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+  gap: 0.65rem;
+}
+
+.practice-corpus-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  text-align: left;
+  min-height: 118px;
+  padding: 0.95rem 0.95rem 0.85rem;
+  border-radius: 18px;
+  border: 1px solid rgba(47, 111, 74, 0.2);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.98) 0%, rgba(236, 248, 240, 0.92) 100%);
+  box-shadow: 0 4px 14px rgba(27, 67, 50, 0.06);
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  font: inherit;
+  color: inherit;
+}
+
+.practice-corpus-mode-card:hover,
+.practice-corpus-mode-card:focus-visible {
+  border-color: rgba(47, 111, 74, 0.45);
+  box-shadow: 0 12px 28px rgba(27, 67, 50, 0.14);
+  transform: translateY(-2px);
+}
+
+.practice-corpus-mode-card:focus-visible {
+  outline: 2px solid rgba(47, 111, 74, 0.35);
+  outline-offset: 2px;
+}
+
+.practice-corpus-mode-icon {
+  display: flex;
+  color: var(--forest);
+  opacity: 0.92;
+}
+
+.practice-corpus-mode-title {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #1f3329;
+}
+
+.practice-corpus-mode-cta {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--forest);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.practice-corpus-customize-label {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.practice-free-panel--explore {
+  border-color: rgba(47, 111, 74, 0.28);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(244, 251, 246, 0.95) 100%);
+}
+
+.practice-explore-toolbar {
+  margin-bottom: 0.35rem;
+}
+
+.practice-explore-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(47, 111, 74, 0.25);
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--forest);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.practice-explore-back:hover {
+  background: rgba(236, 248, 240, 0.95);
+  border-color: rgba(47, 111, 74, 0.45);
+}
+
+.practice-explore-head {
+  margin-top: 0.25rem;
+}
+
+.practice-explore-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.practice-explore-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.65rem 0.85rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 18px;
+  border: 1px solid rgba(47, 111, 74, 0.16);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 18px rgba(27, 67, 50, 0.06);
+}
+
+.practice-explore-item-icon {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 0.15rem;
+  color: var(--forest);
+}
+
+.practice-explore-item-main {
+  flex: 1 1 min(200px, 100%);
+  min-width: 0;
+}
+
+.practice-explore-item-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+
+.practice-explore-item-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #1f3329;
+}
+
+.practice-explore-status {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+}
+
+.practice-explore-status--todo {
+  background: rgba(120, 120, 120, 0.12);
+  color: #4a4a4a;
+}
+
+.practice-explore-status--doing {
+  background: rgba(214, 168, 75, 0.2);
+  color: #6a4a12;
+}
+
+.practice-explore-status--done {
+  background: rgba(47, 111, 74, 0.18);
+  color: var(--forest);
+}
+
+.practice-explore-bar {
+  margin-top: 0.45rem;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(47, 111, 74, 0.1);
+  overflow: hidden;
+}
+
+.practice-explore-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2f6f4a, #4a9d6a);
+  transition: width 0.25s ease;
+}
+
+.practice-explore-pct {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.practice-explore-go {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0.52rem 1.05rem;
+  border-radius: 999px;
+  border: none;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, #2f6f4a, #377a52);
+}
+
+.practice-explore-go:hover {
+  filter: brightness(1.06);
+}
+
 .practice-grade-activities-card {
-  margin-bottom: 0.85rem;
+  margin-top: 0.75rem;
+  margin-bottom: 1rem;
   padding: 1rem 1.05rem;
   border-radius: 22px;
   background: rgba(255, 253, 250, 0.96);
@@ -3101,6 +3387,12 @@ button {
   color: #1f3329;
 }
 
+.practice-assignment-badge {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+}
+
 .practice-assignment-desc {
   margin: 0.25rem 0 0;
   font-size: 0.8rem;
@@ -3145,6 +3437,73 @@ button {
   font-size: 0.85rem;
   line-height: 1.5;
   color: var(--text-muted);
+}
+
+.practice-assignments-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.practice-suggested-corpus {
+  margin-top: 0.35rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed rgba(45, 106, 79, 0.22);
+}
+
+.practice-suggested-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #1f3329;
+}
+
+.practice-suggested-sub {
+  margin: 0.35rem 0 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.practice-suggested-rows {
+  margin-top: 0.35rem;
+}
+
+.practice-assignment-row--suggested {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(47, 111, 74, 0.2);
+}
+
+.practice-suggested-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.practice-suggested-row-ico {
+  display: flex;
+  color: var(--forest);
+}
+
+.practice-suggested-row-head .practice-assignment-title {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.practice-suggested-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(47, 111, 74, 0.12);
+  color: var(--forest);
+}
+
+.practice-suggested-desc {
+  margin-top: 0.3rem;
 }
 
 .practice-free-hint {
@@ -3280,6 +3639,13 @@ button {
   max-width: 100%;
   border-radius: 14px;
   box-shadow: var(--shadow-sm);
+}
+
+.practice-imagen-wrap--fallback {
+  padding: 1rem;
+  border-radius: 14px;
+  background: rgba(47, 111, 74, 0.08);
+  border: 1px dashed rgba(47, 111, 74, 0.35);
 }
 
 .practice-spotlight {
@@ -3680,6 +4046,15 @@ button {
   font-size: 0.98rem;
   line-height: 1.5;
   color: var(--text-muted);
+}
+
+.learn-mock-cta-hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--forest);
+  font-weight: 600;
+  max-width: 36rem;
 }
 
 .learn-mock-art {
@@ -5733,6 +6108,25 @@ button {
   font-weight: 700;
 }
 
+.act-assigned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.act-assigned-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.act-assigned-item .practice-assignment-go {
+  margin-top: 0.5rem;
+  align-self: flex-start;
+}
+
 .mode-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -6026,6 +6420,11 @@ button {
   background: #fffefd;
   font-size: 0.8rem;
   cursor: pointer;
+}
+
+.student-chip.student-chip--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .assign-actions {
@@ -7596,6 +7995,15 @@ button {
   padding: 0.35rem;
   border: 1px solid rgba(26, 61, 43, 0.06);
   background: rgba(255, 252, 246, 0.75);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: center;
+}
+
+.teacher-cal-day--selected {
+  outline: 2px solid rgba(47, 111, 79, 0.55);
+  outline-offset: 1px;
 }
 
 .teacher-cal-day--mark {
@@ -7603,6 +8011,166 @@ button {
   font-weight: 800;
   color: var(--forest-mid);
   border-color: rgba(47, 111, 79, 0.28);
+}
+
+.teacher-cal-add {
+  border-radius: 20px;
+  border: 1px solid rgba(214, 180, 130, 0.28);
+  background: rgba(255, 253, 249, 0.96);
+  padding: clamp(0.85rem, 2.2vw, 1.15rem);
+  margin-bottom: 1rem;
+}
+
+.teacher-cal-add h4 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-family: var(--font-serif);
+  color: var(--forest);
+}
+
+.teacher-cal-add-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: rgba(31, 51, 41, 0.72);
+  line-height: 1.35;
+}
+
+.teacher-cal-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: flex-end;
+}
+
+.teacher-cal-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(31, 51, 41, 0.65);
+  min-width: min(100%, 220px);
+  flex: 1 1 200px;
+}
+
+.teacher-cal-add-field--date {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.teacher-cal-add-field input {
+  border-radius: 10px;
+  border: 1px solid rgba(26, 61, 43, 0.12);
+  padding: 0.45rem 0.55rem;
+  font-size: 0.88rem;
+  background: #fffdf9;
+  color: var(--forest);
+}
+
+.teacher-cal-add-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  background: rgba(47, 111, 79, 0.92);
+  color: #fffdf9;
+  white-space: nowrap;
+}
+
+.teacher-cal-add-submit:hover {
+  filter: brightness(1.05);
+}
+
+.teacher-cal-day-detail {
+  border-radius: 18px;
+  border: 1px solid rgba(47, 111, 79, 0.18);
+  background: rgba(232, 245, 236, 0.35);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.teacher-cal-day-detail h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.95rem;
+  text-transform: capitalize;
+  color: var(--forest);
+}
+
+.teacher-cal-day-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(31, 51, 41, 0.7);
+}
+
+.teacher-cal-day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.teacher-cal-day-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(26, 61, 43, 0.08);
+  font-size: 0.85rem;
+}
+
+.teacher-cal-day-list li:last-child {
+  border-bottom: none;
+}
+
+.teacher-cal-pill {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(214, 180, 130, 0.45);
+  color: var(--forest);
+}
+
+.teacher-cal-pill--act {
+  background: rgba(47, 111, 79, 0.2);
+}
+
+.teacher-cal-del {
+  border: none;
+  background: transparent;
+  color: rgba(120, 60, 40, 0.85);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 8px;
+}
+
+.teacher-cal-del:hover {
+  background: rgba(255, 230, 220, 0.6);
+}
+
+.teacher-cal-go-act {
+  border: none;
+  background: rgba(255, 253, 249, 0.9);
+  border-radius: 8px;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--forest-mid);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(26, 61, 43, 0.1);
+}
+
+.teacher-cal-li-spacer {
+  width: 2rem;
+  height: 1px;
 }
 
 .teacher-cal-upcoming ul {
@@ -7613,7 +8181,7 @@ button {
 
 .teacher-cal-upcoming li {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 0.5rem;
   align-items: start;
   padding: 0.55rem;
