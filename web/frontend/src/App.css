@@ -2070,6 +2070,10 @@ button {
   color: inherit;
 }
 
+.dashboard-rich .action-tile small:empty {
+  display: none;
+}
+
 .home-quick {
   display: flex;
   flex-wrap: wrap;
@@ -4068,6 +4072,11 @@ button {
   color: var(--forest);
   font-weight: 600;
   max-width: 36rem;
+}
+
+.learn-mock-sub:empty,
+.learn-mock-cta-hint:empty {
+  display: none;
 }
 
 .learn-mock-art {
