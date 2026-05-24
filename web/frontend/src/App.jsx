@@ -1404,28 +1404,28 @@ export default function App() {
                     <BookOpen size={22} />
                   </span>
                   <span>{t('home.actionLearn')}</span>
-                  <small>{t('learn.pageSub')}</small>
+                  {t('learn.pageSub').trim() ? <small>{t('learn.pageSub')}</small> : null}
                 </button>
                 <button type="button" className="action-tile action-tile--practice" onClick={() => navigateTo('practicar')}>
                   <span className="action-tile-icon action-tile-icon--practice">
                     <MessageCircle size={22} strokeWidth={2.2} />
                   </span>
                   <span>{t('home.actionPractice')}</span>
-                  <small>{t('navHint.practicar')}</small>
+                  {t('navHint.practicar').trim() ? <small>{t('navHint.practicar')}</small> : null}
                 </button>
                 <button type="button" className="action-tile action-tile--listen" onClick={() => navigateTo('diccionario')}>
                   <span className="action-tile-icon action-tile-icon--listen">
                     <Waves size={22} />
                   </span>
                   <span>{t('home.actionListen')}</span>
-                  <small>{t('home.actionListenHint')}</small>
+                  {t('home.actionListenHint').trim() ? <small>{t('home.actionListenHint')}</small> : null}
                 </button>
                 <button type="button" className="action-tile action-tile--explore" onClick={() => navigateTo('diccionario')}>
                   <span className="action-tile-icon action-tile-icon--explore">
                     <Type size={22} strokeWidth={2.2} />
                   </span>
                   <span>{t('home.actionCorpus')}</span>
-                  <small>{t('home.actionCorpusHint')}</small>
+                  {t('home.actionCorpusHint').trim() ? <small>{t('home.actionCorpusHint')}</small> : null}
                 </button>
               </div>
 

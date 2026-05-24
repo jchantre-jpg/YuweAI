@@ -9,6 +9,9 @@ import {
   getTeacherActivities,
   createTeacherActivity,
   submitTeacherContent,
+  getTeacherReportsSummary,
+  updateTeacherActivity,
+  postTeacherGroupUnassign,
   getAdminUsers,
   getAdminCms,
   getAdminStatsDash,
@@ -27,7 +30,11 @@ import {
   postAdminUserCreate,
   getStudentProfileSchool,
   getStudentActivities,
+  getTeacherMessagingState,
+  saveTeacherMessagingState,
 } from './api'
+import { speakText } from './corpusUtils'
+import { validatePasswordStrength } from './passwordPolicy'
 import {
   Activity,
   ArrowLeft,
@@ -47,7 +54,6 @@ import {
   FileEdit,
   FileText,
   Filter,
-  Gauge,
   GraduationCap,
   House,
   ImageIcon,
@@ -98,6 +104,14 @@ const LEARN_MODULES = [
   { key: 'tiempo', filterKey: 'expresiones', slug: 'tiempo', pct: 0, words: 12, lessons: 4, Icon: CalendarDays, tone: 'red' },
 ]
 
+/** Tema del listado Aprender → pestaña de Practicar (corpus) al pulsar Continuar / Empezar. */
+const LEARN_FILTER_TO_PRACTICE_TAB = {
+  vocabulario: 'vocabulario',
+  gramatica: 'gramatica',
+  expresiones: 'conversacion',
+  cultura: 'imagen',
+}
+
 const LEARN_SKILL_ROWS = [
   { labelKey: 'home.skillVocab', pct: 72, tone: 'vocab' },
   { labelKey: 'home.skillGrammar', pct: 60, tone: 'gram' },
@@ -105,22 +119,149 @@ const LEARN_SKILL_ROWS = [
   { labelKey: 'home.skillConv', pct: 70, tone: 'conv' },
 ]
 
-function slugForLearnModule(slugPrefer, cats) {
-  const list = Array.isArray(cats) ? cats : []
-  if (slugPrefer && list.includes(slugPrefer)) return slugPrefer
-  const i = LEARN_MODULES.findIndex((m) => m.slug === slugPrefer)
-  if (i >= 0 && list[i]) return list[i]
-  return slugPrefer || list[0] || 'comida'
-}
-
 /** —— Practice (Practicar) mockup tabs ↔ API activity modes —— */
 const PRACTICE_TAB_DEF = [
   { id: 'vocabulario', mode: 'quiz', labelKey: 'practice.tabVocab' },
   { id: 'gramatica', mode: 'completar', labelKey: 'practice.tabGrammar' },
+  { id: 'imagen', mode: 'imagen', labelKey: 'act.modeImg' },
   { id: 'escucha', mode: 'quiz', labelKey: 'practice.tabListen' },
   { id: 'conversacion', mode: 'quiz', labelKey: 'practice.tabConversation' },
   { id: 'escritura', mode: 'completar', labelKey: 'practice.tabWriting' },
 ]
+
+/** Categorías del corpus a probar si la seleccionada no tiene suficientes ítems para el modo. */
+const CORPUS_PRACTICE_CATEGORY_FALLBACKS = [
+  'comida',
+  'numeros',
+  'animales',
+  'colores',
+  'saludos',
+  'general',
+  'diccionario_general',
+  'familia_personas',
+  'alimentos',
+  'verbos',
+  'frutas_verduras',
+  'cuerpo_partes',
+  'casa',
+  'objetos',
+  'elementos_agua',
+  'plantas',
+]
+
+function normLearnCatKey(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+}
+
+const PRACTICE_TRACK_STORAGE = 'avi-practice-track-v1'
+
+function practiceTrackKey(tabId, catSlug) {
+  return `${String(tabId || 'vocabulario')}::${normLearnCatKey(catSlug)}`
+}
+
+function readPracticeTrack() {
+  try {
+    if (typeof localStorage === 'undefined') return {}
+    const raw = localStorage.getItem(PRACTICE_TRACK_STORAGE)
+    const o = raw ? JSON.parse(raw) : {}
+    return o && typeof o === 'object' ? o : {}
+  } catch {
+    return {}
+  }
+}
+
+function writePracticeTrack(obj) {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(PRACTICE_TRACK_STORAGE, JSON.stringify(obj))
+  } catch {
+    /* ignore */
+  }
+}
+
+function getPracticeRowProgress(tabId, catSlug) {
+  const row = readPracticeTrack()[practiceTrackKey(tabId, catSlug)]
+  if (!row) return { pct: 0, done: false }
+  if (row.done) return { pct: 100, done: true }
+  const p = Number(row.partial)
+  if (!Number.isFinite(p)) return { pct: 0, done: false }
+  return { pct: Math.round(Math.min(100, Math.max(0, p) * 100)), done: false }
+}
+
+function markPracticeProgress(tabId, catSlug, partial01, done) {
+  const key = practiceTrackKey(tabId, catSlug)
+  const all = readPracticeTrack()
+  const prev = all[key] || {}
+  const nextPartial = Math.max(Number(prev.partial) || 0, Math.min(1, Number(partial01) || 0))
+  all[key] = {
+    partial: nextPartial,
+    done: Boolean(done || prev.done),
+    updated: Date.now(),
+  }
+  writePracticeTrack(all)
+}
+
+function buildPracticeExploreCategories(appCats) {
+  const out = []
+  const push = (c) => {
+    const s = String(c || '').trim()
+    if (s && !out.includes(s)) out.push(s)
+  }
+  if (Array.isArray(appCats)) for (const c of appCats) push(c)
+  for (const c of CORPUS_PRACTICE_CATEGORY_FALLBACKS) push(c)
+  return out.slice(0, 18)
+}
+
+/** Alinea el slug del módulo Aprender con nombres reales de categoría en stats/corpus. */
+function resolveLearnCategoryForCorpus(slugPrefer, cats) {
+  const list = Array.isArray(cats) ? cats.filter(Boolean).map(String) : []
+  const prefRaw = String(slugPrefer || '').trim()
+  const pref = prefRaw || 'comida'
+  const prefN = normLearnCatKey(pref)
+
+  for (const c of list) {
+    if (normLearnCatKey(c) === prefN) return c
+  }
+  for (const c of list) {
+    const cn = normLearnCatKey(c)
+    if (cn.includes(prefN) || prefN.includes(cn)) return c
+  }
+
+  const ALIASES = {
+    saludos: ['saludos', 'general', 'comida', 'numeros'],
+    familia: ['familia_personas', 'familia personas', 'familia', 'personas'],
+    casa: ['casa', 'hogar', 'objetos', 'cuerpo_partes'],
+    naturaleza: ['naturaleza', 'animales', 'plantas', 'colores', 'elementos_agua'],
+    tiempo: ['tiempo', 'numeros', 'general', 'dias_semana'],
+  }
+  const tries = ALIASES[pref] || [pref, ...CORPUS_PRACTICE_CATEGORY_FALLBACKS]
+  for (const t of tries) {
+    const tn = normLearnCatKey(t)
+    const hit = list.find((c) => normLearnCatKey(c) === tn)
+    if (hit) return hit
+  }
+  for (const t of tries) {
+    const tn = normLearnCatKey(t)
+    const hit = list.find(
+      (c) => normLearnCatKey(c).includes(tn) || tn.includes(normLearnCatKey(c)),
+    )
+    if (hit) return hit
+  }
+  const fallbackTry = tries.map(String).find(Boolean) || 'comida'
+  return list[0] || fallbackTry
+}
+
+const PRACTICE_TAB_ICONS = {
+  vocabulario: BookOpen,
+  gramatica: ListChecks,
+  imagen: ImageIcon,
+  escucha: Volume2,
+  conversacion: MessageCircle,
+  escritura: PenLine,
+}
 
 const PRACTICE_OPT_ICONS = [Droplet, Mountain, Flame, Trees]
 
@@ -151,7 +292,7 @@ function practiceTabFromServerMode(mode) {
     case 'completar':
       return 'gramatica'
     case 'imagen':
-      return 'vocabulario'
+      return 'imagen'
     default:
       return 'vocabulario'
   }
@@ -264,10 +405,6 @@ function firstName(profile) {
   return String(profile?.name || 'Usuario').trim().split(/\s+/)[0] || 'Usuario'
 }
 
-function percentFromIndex(index, base = 72) {
-  return Math.min(98, base + (index % 4) * 6)
-}
-
 function RoleMetric({ icon: Icon, label, value, tone = 'green' }) {
   return (
     <article className={`role-metric role-metric--${tone}`}>
@@ -310,25 +447,17 @@ function RolePanel({ title, action, children, className = '' }) {
   )
 }
 
-const TEACHER_ACTIVITY_DEMO = [
-  { id: 'demo-a1', title: 'Saludos en Nasa Yuwe', mode: 'quiz', category: 'saludos', group_name: 'Grupo 1A', created_at: 1716508800, assigned_at: 1716508800, status: 'active' },
-  { id: 'demo-a2', title: 'Vocabulario basico', mode: 'completar', category: 'general', group_name: 'Grupo 1B', created_at: 1716595200, assigned_at: 1716595200, status: 'active' },
-  { id: 'demo-a3', title: 'Conversacion con AVI', mode: 'imagen', category: 'familia_personas', group_name: 'Grupo 2A', created_at: 1716681600, assigned_at: 1716681600, status: 'active' },
-  { id: 'demo-a4', title: 'Frases cotidianas', mode: 'quiz', category: 'expresiones', group_name: 'Grupo 2B', created_at: 1716854400, assigned_at: 1716854400, status: 'draft' },
-  { id: 'demo-a5', title: 'Cultura y tradicion', mode: 'quiz', category: 'cultura', group_name: 'Grupo 1A', created_at: 1717027200, assigned_at: 1717027200, status: 'scheduled' },
-]
-
 function unixMs(u) {
   const n = Number(u || 0)
   if (!n) return 0
   return n < 1e12 ? n * 1000 : n
 }
 
-/** Fecha objetivo tipo mock: fecha de creacion/asignacion + 7 dias. */
+/** Fecha de ultima asignacion o de creacion (sin fecha ficticia de entrega). */
 function teacherDueFmt(createdAt, assignedAt, locale = 'es-ES') {
   const ms = unixMs(assignedAt) || unixMs(createdAt)
   if (!ms) return '—'
-  const d = new Date(ms + 7 * 86400000)
+  const d = new Date(ms)
   try {
     return d.toLocaleDateString(locale)
   } catch {
@@ -357,12 +486,66 @@ function teacherUiStatusRow(statusRaw) {
   return { labelKey: 'teacher.statusActive', className: 'status-pill ok' }
 }
 
+function teacherWorkflowFromStatus(statusRaw) {
+  const s = String(statusRaw || 'active').toLowerCase()
+  if (s === 'draft') return 'borrador'
+  if (s === 'scheduled') return 'programada'
+  return 'activa'
+}
+
 /** @param {unknown} acts */
 export function teacherDisplayActivitiesRows(activities) {
   const list = Array.isArray(activities) ? [...activities] : []
   list.sort((a, b) => unixMs(b?.created_at) - unixMs(a?.created_at))
-  if (!list.length) return TEACHER_ACTIVITY_DEMO
   return list
+}
+
+const TEACHER_CAL_EVENTS_KEY = 'avi-teacher-calendar-events-v1'
+
+/** @returns {{ id: string, title: string, dueMs: number }[]} */
+function readTeacherCalEvents() {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(TEACHER_CAL_EVENTS_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.filter(
+      (x) => x && typeof x.id === 'string' && typeof x.title === 'string' && typeof x.dueMs === 'number',
+    )
+  } catch {
+    return []
+  }
+}
+
+function writeTeacherCalEvents(events) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(TEACHER_CAL_EVENTS_KEY, JSON.stringify(events))
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+/** Demo rows when storage is empty so the calendar is not blank on first visit. */
+function seedTeacherCalEventsIfEmpty() {
+  if (typeof window === 'undefined') return []
+  const existing = readTeacherCalEvents()
+  if (existing.length) return existing
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const lastD = new Date(y, m + 1, 0).getDate()
+  const clampD = (d) => Math.min(Math.max(1, d), lastD)
+  const atNoon = (day) => new Date(y, m, clampD(day), 12, 0, 0, 0).getTime()
+  const seeded = [
+    { id: 'seed-cal-1', title: 'Entrega: lectura con numeros (vocabulario)', dueMs: atNoon(6) },
+    { id: 'seed-cal-2', title: 'Taller oral: saludos y presentaciones', dueMs: atNoon(14) },
+    { id: 'seed-cal-3', title: 'Quiz: colores y animales', dueMs: atNoon(21) },
+    { id: 'seed-cal-4', title: 'Cierre de unidad — comida y casa', dueMs: atNoon(Math.min(27, lastD)) },
+  ]
+  writeTeacherCalEvents(seeded)
+  return seeded
 }
 
 function RoleListProgressBar({ pct }) {
@@ -379,49 +562,25 @@ function RoleListProgressBar({ pct }) {
 
 export function TeacherDashboard({ t, notify, profile, setView }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
-  const [groups, setGroups] = useState([])
-  const [students, setStudents] = useState([])
-  const [activities, setActivities] = useState([])
+  const [summary, setSummary] = useState(null)
 
   useEffect(() => {
     async function load() {
       try {
-        const [g, s, act] = await Promise.all([
-          getTeacherGroups(token),
-          getTeacherStudents(token, ''),
-          getTeacherActivities(token),
-        ])
-        setGroups(g.groups || [])
-        setStudents(s.students || [])
-        setActivities(act.activities || [])
+        const s = await getTeacherReportsSummary(token, 30)
+        setSummary(s)
       } catch {
         notify(t('teacher.loadErr'))
+        setSummary(null)
       }
     }
     load()
   }, [notify, t, token])
 
-  const rowsAct = teacherDisplayActivitiesRows(activities)
-  const totalStudents =
-    groups.reduce((sum, group) => sum + Number(group.students || 0), 0) || students.length || 28
-  const activityCount = activities.length > 0 ? activities.length : Math.max(rowsAct.length, 12)
-  const avgProgress = groups.length
-    ? Math.round(groups.reduce((sum, group, i) => sum + percentFromIndex(i), 0) / groups.length)
-    : rowsAct.length
-      ? Math.round(rowsAct.reduce((s, _, i) => s + percentFromIndex(i, 78), 0) / Math.min(rowsAct.length, 4))
-      : 85
-  const displayGroups =
-    groups.length > 0
-      ? groups.slice(0, 4)
-      : [
-          { id: 'demo-1', name: 'Grupo 1A', students: 24, difficulty_default: 'intermedio' },
-          { id: 'demo-2', name: 'Grupo 1B', students: 20, difficulty_default: 'facil' },
-          { id: 'demo-3', name: 'Grupo 2A', students: 27, difficulty_default: 'avanzado' },
-          { id: 'demo-4', name: 'Grupo 2B', students: 22, difficulty_default: 'intermedio' },
-        ]
-
+  const totals = summary?.totals
+  const displayGroups = (summary?.group_bars || []).slice(0, 4)
+  const pendingSlice = (summary?.recent_activities || []).slice(0, 3)
   const pendingIcons = [PenLine, FileText, MessageCircle]
-  const pendingSlice = rowsAct.slice(0, 3)
 
   return (
     <div className="teacher-workspace-shell">
@@ -440,14 +599,15 @@ export function TeacherDashboard({ t, notify, profile, setView }) {
         </section>
 
         <section className="role-metrics">
+          <RoleMetric icon={UsersRound} label={t('teacher.metricGroupsLbl')} value={totals?.groups ?? 0} />
           <RoleMetric
-            icon={UsersRound}
-            label={t('teacher.metricGroupsLbl')}
-            value={displayGroups.length}
+            icon={ClipboardList}
+            label={t('teacher.metricActivitiesLbl')}
+            value={totals?.group_assignments_window ?? 0}
+            tone="gold"
           />
-          <RoleMetric icon={ClipboardList} label={t('teacher.metricActivitiesLbl')} value={activityCount} tone="gold" />
-          <RoleMetric icon={TrendingUp} label={t('teacher.metricAvgLbl')} value={`${avgProgress}%`} tone="green" />
-          <RoleMetric icon={UserCheck} label={t('teacher.metricStudentsLbl')} value={totalStudents} tone="purple" />
+          <RoleMetric icon={TrendingUp} label={t('teacher.metricAvgLbl')} value={totals?.active_activities_all ?? 0} tone="green" />
+          <RoleMetric icon={UserCheck} label={t('teacher.metricStudentsLbl')} value={totals?.students_in_groups ?? 0} tone="purple" />
         </section>
 
         <div className="role-board-grid role-board-grid--teacher-twocol">
@@ -460,18 +620,22 @@ export function TeacherDashboard({ t, notify, profile, setView }) {
             }
           >
             <div className="role-list teacher-group-progress-list">
-              {displayGroups.map((group, index) => (
-                <article key={group.id} className="role-list-item role-list-item--progress">
-                  <span className="role-list-icon">
-                    <UsersRound size={17} strokeWidth={2} />
-                  </span>
-                  <div className="role-list-body">
-                    <strong>{group.name}</strong>
-                    <small>{t('teacher.studentsLine', { n: group.students || 0 })}</small>
-                    <RoleListProgressBar pct={percentFromIndex(index, 74)} />
-                  </div>
-                </article>
-              ))}
+              {displayGroups.length === 0 ? (
+                <p className="doc-empty-visual">{t('teacher.noGroups')}</p>
+              ) : (
+                displayGroups.map((group) => (
+                  <article key={group.id} className="role-list-item role-list-item--progress">
+                    <span className="role-list-icon">
+                      <UsersRound size={17} strokeWidth={2} />
+                    </span>
+                    <div className="role-list-body">
+                      <strong>{group.name}</strong>
+                      <small>{t('teacher.studentsLine', { n: group.students || 0 })}</small>
+                      <RoleListProgressBar pct={group.bar_pct ?? 0} />
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
           </RolePanel>
 
@@ -484,26 +648,30 @@ export function TeacherDashboard({ t, notify, profile, setView }) {
             }
           >
             <div className="role-task-list teacher-pending-task-list">
-              {pendingSlice.map((row, index) => {
-                const Ico = pendingIcons[index % pendingIcons.length]
-                const grp = row.group_name || t('teacher.groupGeneric')
-                const rk = row.id != null ? String(row.id) : `p-${index}`
-                return (
-                  <article key={rk} className="role-task teacher-pending-task">
-                    <span className={`teacher-pending-task-ico tone-${index % 3}`}>
-                      <Ico size={16} strokeWidth={2} />
-                    </span>
-                    <div>
-                      <strong>
-                        {`${t(teacherTipoLabelKey(row.mode))}: ${row.title || row.description || '—'}`}
-                      </strong>
-                      <small>
-                        {grp} · {t('teacher.dueLabel')}: {teacherDueFmt(row.created_at, row.assigned_at)}
-                      </small>
-                    </div>
-                  </article>
-                )
-              })}
+              {pendingSlice.length === 0 ? (
+                <p className="doc-empty-visual">{t('teacher.noActivitiesRows')}</p>
+              ) : (
+                pendingSlice.map((row, index) => {
+                  const Ico = pendingIcons[index % pendingIcons.length]
+                  const grp = row.group_name || t('teacher.groupGeneric')
+                  const rk = row.id != null ? String(row.id) : `p-${index}`
+                  return (
+                    <article key={rk} className="role-task teacher-pending-task">
+                      <span className={`teacher-pending-task-ico tone-${index % 3}`}>
+                        <Ico size={16} strokeWidth={2} />
+                      </span>
+                      <div>
+                        <strong>
+                          {`${t(teacherTipoLabelKey(row.mode))}: ${row.title || '—'}`}
+                        </strong>
+                        <small>
+                          {grp} · {t('teacher.dueLabel')}: {teacherDueFmt(row.created_at, row.assigned_at)}
+                        </small>
+                      </div>
+                    </article>
+                  )
+                })
+              )}
             </div>
           </RolePanel>
         </div>
@@ -512,7 +680,7 @@ export function TeacherDashboard({ t, notify, profile, setView }) {
   )
 }
 
-/** Tabla alta fidelidad: actividades del docente (API + filas demo si vacio). */
+/** Tabla: actividades del docente (solo datos del servidor). */
 export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
   const [groups, setGroups] = useState([])
@@ -533,6 +701,23 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
     group_id: '',
   }))
   const [actSheet, setActSheet] = useState(null)
+  const [editDraft, setEditDraft] = useState(null)
+
+  useEffect(() => {
+    if (!actSheet || actSheet.mode !== 'edit' || actSheet.row?.id == null) {
+      setEditDraft(null)
+      return
+    }
+    const r = actSheet.row
+    setEditDraft({
+      title: r.title || '',
+      description: r.description || r.title || '',
+      category: r.category || 'comida',
+      difficulty: r.difficulty || 'intermedio',
+      mode: r.mode || 'quiz',
+      workflow_status: teacherWorkflowFromStatus(r.status),
+    })
+  }, [actSheet])
 
   const reload = useCallback(async () => {
     try {
@@ -620,6 +805,47 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
       notify(e.message || t('teacher.loadErr'))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function saveActivityEdit(ev) {
+    ev.preventDefault()
+    if (!actSheet?.row?.id || !editDraft?.title?.trim()) return
+    try {
+      await updateTeacherActivity(token, {
+        activity_id: actSheet.row.id,
+        title: editDraft.title.trim(),
+        description: (editDraft.description || editDraft.title).trim(),
+        category: editDraft.category,
+        difficulty: editDraft.difficulty,
+        mode: editDraft.mode,
+        status: editDraft.workflow_status,
+      })
+      notify(t('teacher.actUpdated'))
+      setActSheet(null)
+      reload()
+    } catch (e) {
+      notify(e.message || t('teacher.actUpdateErr'))
+    }
+  }
+
+  async function duplicateActivity(row) {
+    if (row?.id == null) return
+    try {
+      await createTeacherActivity(token, {
+        title: `${String(row.title || '').trim() || 'Actividad'} (copia)`,
+        description: (row.description || row.title || '').trim(),
+        category: row.category || 'comida',
+        difficulty: row.difficulty || 'intermedio',
+        mode: row.mode || 'quiz',
+        status: 'borrador',
+        grade_id: 0,
+        group_id: 0,
+      })
+      notify(t('teacher.actDupOk'))
+      reload()
+    } catch (e) {
+      notify(e.message || t('teacher.actDupErr'))
     }
   }
 
@@ -751,54 +977,62 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
-                const st = teacherUiStatusRow(row.status)
-                const idKey = row.id != null ? String(row.id) : row.title
-                return (
-                  <tr key={idKey}>
-                    <td>
-                      <strong>{row.title}</strong>
-                    </td>
-                    <td>{t(teacherTipoLabelKey(row.mode))}</td>
-                    <td>{row.group_name || '—'}</td>
-                    <td className="admin-nowrap">{teacherDueFmt(row.created_at, row.assigned_at)}</td>
-                    <td>
-                      <span className={st.className}>{t(st.labelKey)}</span>
-                    </td>
-                    <td>
-                      <div className="teacher-row-actions">
-                        <button
-                          type="button"
-                          className="teacher-icon-btn"
-                          title={t('teacher.edit')}
-                          aria-label={t('teacher.edit')}
-                          onClick={() => setActSheet({ row, mode: 'edit' })}
-                        >
-                          <Pencil size={16} strokeWidth={2} />
-                        </button>
-                        <button
-                          type="button"
-                          className="teacher-icon-btn"
-                          title={t('teacher.view')}
-                          aria-label={t('teacher.view')}
-                          onClick={() => setActSheet({ row, mode: 'view' })}
-                        >
-                          <Eye size={16} strokeWidth={2} />
-                        </button>
-                        <button
-                          type="button"
-                          className="teacher-icon-btn"
-                          title={t('teacher.more')}
-                          aria-label={t('teacher.more')}
-                          onClick={() => notify(t('teacher.actMoreSoon'))}
-                        >
-                          <MoreVertical size={16} strokeWidth={2} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="teacher-report-muted">
+                    {t('teacher.noActivitiesRows')}
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
+                  const st = teacherUiStatusRow(row.status)
+                  const idKey = row.id != null ? String(row.id) : row.title
+                  return (
+                    <tr key={idKey}>
+                      <td>
+                        <strong>{row.title}</strong>
+                      </td>
+                      <td>{t(teacherTipoLabelKey(row.mode))}</td>
+                      <td>{row.group_name || '—'}</td>
+                      <td className="admin-nowrap">{teacherDueFmt(row.created_at, row.assigned_at)}</td>
+                      <td>
+                        <span className={st.className}>{t(st.labelKey)}</span>
+                      </td>
+                      <td>
+                        <div className="teacher-row-actions">
+                          <button
+                            type="button"
+                            className="teacher-icon-btn"
+                            title={t('teacher.edit')}
+                            aria-label={t('teacher.edit')}
+                            onClick={() => setActSheet({ row, mode: 'edit' })}
+                          >
+                            <Pencil size={16} strokeWidth={2} />
+                          </button>
+                          <button
+                            type="button"
+                            className="teacher-icon-btn"
+                            title={t('teacher.view')}
+                            aria-label={t('teacher.view')}
+                            onClick={() => setActSheet({ row, mode: 'view' })}
+                          >
+                            <Eye size={16} strokeWidth={2} />
+                          </button>
+                          <button
+                            type="button"
+                            className="teacher-icon-btn"
+                            title={t('teacher.actMoreSoon')}
+                            aria-label={t('teacher.actMoreSoon')}
+                            onClick={() => duplicateActivity(row)}
+                          >
+                            <MoreVertical size={16} strokeWidth={2} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -824,42 +1058,101 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
                 {actSheet.mode === 'edit' ? t('teacher.actModalEditTitle') : t('teacher.actModalViewTitle')}
               </h3>
               {actSheet.mode === 'edit' ? <p className="admin-modal-intro">{t('teacher.actModalEditHint')}</p> : null}
-              <dl className="teacher-act-dl">
-                <dt>{t('teacher.colTitle')}</dt>
-                <dd>{actSheet.row.title || '—'}</dd>
-                <dt>{t('teacher.actModalDesc')}</dt>
-                <dd>{actSheet.row.description || '—'}</dd>
-                <dt>{t('teacher.colType')}</dt>
-                <dd>{t(teacherTipoLabelKey(actSheet.row.mode))}</dd>
-                <dt>{t('teacher.actModalTechMode')}</dt>
-                <dd>{String(actSheet.row.mode || '—')}</dd>
-                <dt>{t('teacher.actModalCategory')}</dt>
-                <dd>{actSheet.row.category || '—'}</dd>
-                <dt>{t('teacher.actModalDifficulty')}</dt>
-                <dd>{actSheet.row.difficulty || '—'}</dd>
-                <dt>{t('teacher.colGroup')}</dt>
-                <dd>{actSheet.row.group_name || '—'}</dd>
-                <dt>{t('teacher.colDue')}</dt>
-                <dd>{teacherDueFmt(actSheet.row.created_at, actSheet.row.assigned_at)}</dd>
-                <dt>{t('teacher.colStatus')}</dt>
-                <dd>
-                  {(() => {
-                    const ss = teacherUiStatusRow(actSheet.row.status)
-                    return (
-                      <span className={ss.className}>{t(ss.labelKey)}</span>
-                    )
-                  })()}
-                </dd>
-                <dt>{t('teacher.actModalRowId')}</dt>
-                <dd>
-                  <code>{actSheet.row.id != null ? String(actSheet.row.id) : '—'}</code>
-                </dd>
-              </dl>
-              <div className="modal-actions-row">
-                <button type="button" onClick={() => setActSheet(null)}>
-                  {t('teacher.actModalClose')}
-                </button>
-              </div>
+              {actSheet.mode === 'edit' && editDraft ? (
+                <form className="teacher-act-form-grid" onSubmit={saveActivityEdit}>
+                  <input
+                    value={editDraft.title}
+                    onChange={(ev) => setEditDraft((d) => ({ ...d, title: ev.target.value }))}
+                    placeholder={t('teacher.actTitlePh')}
+                    required
+                  />
+                  <textarea
+                    value={editDraft.description}
+                    onChange={(ev) => setEditDraft((d) => ({ ...d, description: ev.target.value }))}
+                    placeholder={t('teacher.actDescPh')}
+                    rows={3}
+                  />
+                  <select value={editDraft.mode} onChange={(ev) => setEditDraft((d) => ({ ...d, mode: ev.target.value }))}>
+                    <option value="quiz">{t('teacher.modeQuiz')}</option>
+                    <option value="completar">{t('teacher.modeComplete')}</option>
+                    <option value="imagen">{t('teacher.modeImage')}</option>
+                  </select>
+                  <select
+                    value={editDraft.workflow_status}
+                    onChange={(ev) => setEditDraft((d) => ({ ...d, workflow_status: ev.target.value }))}
+                  >
+                    <option value="activa">{t('teacher.statusActive')}</option>
+                    <option value="borrador">{t('teacher.statusDraft')}</option>
+                    <option value="programada">{t('teacher.statusScheduled')}</option>
+                  </select>
+                  <select value={editDraft.category} onChange={(ev) => setEditDraft((d) => ({ ...d, category: ev.target.value }))}>
+                    <option value="comida">comida</option>
+                    <option value="animales">animales</option>
+                    <option value="saludos">saludos</option>
+                    <option value="familia_personas">familia_personas</option>
+                    <option value="cultura">cultura</option>
+                  </select>
+                  <select
+                    value={editDraft.difficulty}
+                    onChange={(ev) => setEditDraft((d) => ({ ...d, difficulty: ev.target.value }))}
+                  >
+                    <option value="facil">{t('act.facil')}</option>
+                    <option value="intermedio">{t('act.intermedio')}</option>
+                    <option value="avanzado">{t('act.avanzado')}</option>
+                  </select>
+                  <p>
+                    <small>
+                      {t('teacher.actModalRowId')}: <code>{String(actSheet.row.id)}</code> · {t('teacher.colGroup')}:{' '}
+                      {actSheet.row.group_name || '—'}
+                    </small>
+                  </p>
+                  <div className="modal-actions-row">
+                    <button type="submit" className="teacher-btn-solid">
+                      {t('teacher.actSaveEdit')}
+                    </button>
+                    <button type="button" onClick={() => setActSheet(null)}>
+                      {t('teacher.actModalClose')}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <dl className="teacher-act-dl">
+                  <dt>{t('teacher.colTitle')}</dt>
+                  <dd>{actSheet.row.title || '—'}</dd>
+                  <dt>{t('teacher.actModalDesc')}</dt>
+                  <dd>{actSheet.row.description || '—'}</dd>
+                  <dt>{t('teacher.colType')}</dt>
+                  <dd>{t(teacherTipoLabelKey(actSheet.row.mode))}</dd>
+                  <dt>{t('teacher.actModalTechMode')}</dt>
+                  <dd>{String(actSheet.row.mode || '—')}</dd>
+                  <dt>{t('teacher.actModalCategory')}</dt>
+                  <dd>{actSheet.row.category || '—'}</dd>
+                  <dt>{t('teacher.actModalDifficulty')}</dt>
+                  <dd>{actSheet.row.difficulty || '—'}</dd>
+                  <dt>{t('teacher.colGroup')}</dt>
+                  <dd>{actSheet.row.group_name || '—'}</dd>
+                  <dt>{t('teacher.colDue')}</dt>
+                  <dd>{teacherDueFmt(actSheet.row.created_at, actSheet.row.assigned_at)}</dd>
+                  <dt>{t('teacher.colStatus')}</dt>
+                  <dd>
+                    {(() => {
+                      const ss = teacherUiStatusRow(actSheet.row.status)
+                      return <span className={ss.className}>{t(ss.labelKey)}</span>
+                    })()}
+                  </dd>
+                  <dt>{t('teacher.actModalRowId')}</dt>
+                  <dd>
+                    <code>{actSheet.row.id != null ? String(actSheet.row.id) : '—'}</code>
+                  </dd>
+                </dl>
+              )}
+              {actSheet.mode === 'view' ? (
+                <div className="modal-actions-row">
+                  <button type="button" onClick={() => setActSheet(null)}>
+                    {t('teacher.actModalClose')}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -928,35 +1221,48 @@ function TeacherReportBarChart({ items }) {
 
 export function TeacherReportsPanel({ t, notify, navigateHome }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
-  const [groups, setGroups] = useState([])
   const [tab, setTab] = useState('resumen')
   const [range, setRange] = useState('30')
+  const [summary, setSummary] = useState(null)
 
   useEffect(() => {
     async function load() {
       try {
-        const g = await getTeacherGroups(token)
-        setGroups(g.groups || [])
+        const days = Number(range) || 30
+        const s = await getTeacherReportsSummary(token, days)
+        setSummary(s)
       } catch {
         notify(t('teacher.loadErr'))
+        setSummary(null)
       }
     }
     load()
-  }, [notify, t, token])
+  }, [notify, t, token, range])
 
-  const disp = groups.length
-    ? groups.slice(0, 4).map((g, i) => ({ label: g.name?.replace(/^Grupo\s*/i, 'G.') || String(i + 1), value: percentFromIndex(i, 76) }))
-    : [
-        { label: '1A', value: 85 },
-        { label: '1B', value: 78 },
-        { label: '2A', value: 90 },
-        { label: '2B', value: 82 },
-      ]
+  const totals = summary?.totals
+  const disp = (summary?.group_bars || []).map((g) => ({
+    label: (String(g.name || '').replace(/^Grupo\s*/i, 'G.') || '—').slice(0, 16),
+    value: g.bar_pct ?? 0,
+  }))
+  const actRows = summary?.activities_tab || []
+  const studRows = summary?.students_tab || []
 
   function exportCsv() {
-    const head = `${t('teacher.colTitle')};${t('teacher.colGroup')};%\n`
-    const body = disp.map((r) => `"${t('teacher.exportRow')}-${r.label}";"${r.label}";${r.value}`).join('\n')
-    const blob = new Blob([head + body], { type: 'text/csv;charset=utf-8' })
+    const head1 = `${t('teacher.repTabAct')}: ${t('teacher.colTitle')};${t('teacher.colType')};${t('teacher.colGroup')};${t('teacher.colStatus')};fecha\n`
+    const body1 = actRows
+      .map((r) =>
+        [`"${String(r.title || '').replace(/"/g, '""')}"`, r.mode, r.group_name || '', r.status, teacherDueFmt(r.created_at, r.assigned_at)].join(
+          ';',
+        ),
+      )
+      .join('\n')
+    const head2 = `\n${t('teacher.repTabStud')}: nombre;correo;grupo\n`
+    const body2 = studRows
+      .map((r) =>
+        [`"${String(r.display_name || '').replace(/"/g, '""')}"`, r.email, r.group_name].join(';'),
+      )
+      .join('\n')
+    const blob = new Blob([head1 + body1 + head2 + body2], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = 'reportes-docente.csv'
@@ -1016,43 +1322,109 @@ export function TeacherReportsPanel({ t, notify, navigateHome }) {
           <>
             <section className="teacher-report-kpis">
               <article>
-                <strong>85%</strong>
+                <strong>{totals?.groups ?? 0}</strong>
                 <span>{t('teacher.kpiAvg')}</span>
               </article>
               <article>
-                <strong>92%</strong>
+                <strong>{totals?.students_in_groups ?? 0}</strong>
                 <span>{t('teacher.kpiPart')}</span>
               </article>
               <article>
-                <strong>76%</strong>
+                <strong>{totals?.activities_created_window ?? 0}</strong>
                 <span>{t('teacher.kpiDone')}</span>
               </article>
               <article>
-                <strong>68%</strong>
+                <strong>{totals?.group_assignments_window ?? 0}</strong>
                 <span>{t('teacher.kpiAvi')}</span>
               </article>
             </section>
             <section className="teacher-report-chart-card">
               <h3>{t('teacher.progressByGroup')}</h3>
               <div className="teacher-report-chart-wrap">
-                <TeacherReportBarChart items={disp.map((it) => ({ ...it }))} />
+                {disp.length ? (
+                  <TeacherReportBarChart items={disp.map((it) => ({ ...it }))} />
+                ) : (
+                  <p className="teacher-report-muted">{t('teacher.noReportData')}</p>
+                )}
               </div>
             </section>
           </>
         ) : tab === 'grupo' ? (
           <section className="teacher-report-chart-card">
             <h3>{t('teacher.progressDetailGroup')}</h3>
-            <MiniBars items={disp.map((it) => ({ label: it.label, value: it.value }))} />
+            {disp.length ? (
+              <MiniBars items={disp.map((it) => ({ label: it.label, value: it.value }))} />
+            ) : (
+              <p className="teacher-report-muted">{t('teacher.noReportData')}</p>
+            )}
+            <p className="teacher-module-foot" style={{ marginTop: '1rem' }}>
+              {t('teacher.repSoonAct')}
+            </p>
           </section>
         ) : tab === 'actividad' ? (
-          <section className="teacher-report-chart-card teacher-report-muted">
-            <BarChart3 size={28} strokeWidth={2} aria-hidden />
-            <p>{t('teacher.repSoonAct')}</p>
+          <section className="teacher-report-chart-card">
+            <h3>{t('teacher.repTabAct')}</h3>
+            {actRows.length ? (
+              <div className="admin-table-wrap">
+                <table className="doc-table admin-data-table">
+                  <thead>
+                    <tr>
+                      <th>{t('teacher.colTitle')}</th>
+                      <th>{t('teacher.colType')}</th>
+                      <th>{t('teacher.colGroup')}</th>
+                      <th>{t('teacher.colStatus')}</th>
+                      <th>{t('teacher.colDue')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actRows.map((r) => (
+                      <tr key={r.id}>
+                        <td>{r.title}</td>
+                        <td>{t(teacherTipoLabelKey(r.mode))}</td>
+                        <td>{r.group_name || '—'}</td>
+                        <td>
+                          <span className={teacherUiStatusRow(r.status).className}>{t(teacherUiStatusRow(r.status).labelKey)}</span>
+                        </td>
+                        <td className="admin-nowrap">{teacherDueFmt(r.created_at, r.assigned_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="teacher-report-muted">{t('teacher.noReportData')}</p>
+            )}
           </section>
         ) : (
-          <section className="teacher-report-chart-card teacher-report-muted">
-            <UsersRound size={28} strokeWidth={2} aria-hidden />
-            <p>{t('teacher.repSoonStud')}</p>
+          <section className="teacher-report-chart-card">
+            <h3>{t('teacher.repTabStud')}</h3>
+            {studRows.length ? (
+              <div className="admin-table-wrap">
+                <table className="doc-table admin-data-table">
+                  <thead>
+                    <tr>
+                      <th>{t('teacher.colName')}</th>
+                      <th>{t('teacher.colEmail')}</th>
+                      <th>{t('teacher.colGroup')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studRows.map((r) => (
+                      <tr key={`${r.student_id}-${r.group_name}`}>
+                        <td>{r.display_name}</td>
+                        <td>{r.email}</td>
+                        <td>{r.group_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="teacher-report-muted">{t('teacher.noReportData')}</p>
+            )}
+            <p className="teacher-module-foot" style={{ marginTop: '1rem' }}>
+              {t('teacher.repSoonStud')}
+            </p>
           </section>
         )}
 
@@ -1062,57 +1434,70 @@ export function TeacherReportsPanel({ t, notify, navigateHome }) {
   )
 }
 
-const TEACHER_MSG_KEY = 'nasa-yuwe-docente-msg-v1'
-
-export function TeacherMessagesPanel({ t, notify, navigateHome }) {
+export function TeacherMessagesPanel({ t, notify, navigateHome, sessionToken }) {
   const [threads, setThreads] = useState([])
   const [active, setActive] = useState('')
   const [draft, setDraft] = useState('')
+  const saveTimerRef = useRef(null)
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(TEACHER_MSG_KEY)
-      if (raw) {
-        const p = JSON.parse(raw)
-        if (Array.isArray(p.threads) && p.threads.length) {
-          setThreads(p.threads)
-          setActive(String(p.active || p.threads[0]?.id || ''))
+    let cancelled = false
+
+    function defaultThreads() {
+      return [
+        {
+          id: 'th1',
+          with: t('teacher.msgThreadDrafts'),
+          msgs: [
+            {
+              me: false,
+              text: t('teacher.msgWelcome'),
+              at: new Date().toLocaleString(),
+            },
+          ],
+        },
+      ]
+    }
+
+    async function load() {
+      if (!sessionToken) {
+        const init = defaultThreads()
+        setThreads(init)
+        setActive('th1')
+        return
+      }
+      try {
+        const res = await getTeacherMessagingState(sessionToken)
+        const m = res?.messaging
+        if (cancelled) return
+        if (m && typeof m === 'object' && Array.isArray(m.threads) && m.threads.length) {
+          setThreads(m.threads)
+          setActive(String(m.active || m.threads[0]?.id || ''))
           return
         }
+      } catch {
+        /* usar plantilla local */
       }
-    } catch {
-      /* ignore */
+      if (!cancelled) {
+        const init = defaultThreads()
+        setThreads(init)
+        setActive('th1')
+      }
     }
-    const init = [
-      {
-        id: 'th1',
-        with: 'Grupo · Consultas generales',
-        msgs: [
-          {
-            me: false,
-            text: t('teacher.msgWelcome'),
-            at: new Date().toLocaleString(),
-          },
-        ],
-      },
-      {
-        id: 'th2',
-        with: `${t('teacher.msgPeerPrefix')} Maria G.`,
-        msgs: [{ me: false, text: t('teacher.msgPeerSnippet'), at: '' }],
-      },
-    ]
-    setThreads(init)
-    setActive('th1')
-  }, [t])
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [sessionToken, t])
 
   useEffect(() => {
-    try {
-      if (!threads.length) return
-      window.localStorage.setItem(TEACHER_MSG_KEY, JSON.stringify({ threads, active }))
-    } catch {
-      /* ignore */
-    }
-  }, [threads, active])
+    if (!sessionToken || !threads.length) return undefined
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTeacherMessagingState(sessionToken, { threads, active }).catch(() => {})
+    }, 500)
+    return () => window.clearTimeout(saveTimerRef.current)
+  }, [threads, active, sessionToken])
 
   const sel = threads.find((x) => String(x.id) === String(active)) || threads[0]
 
@@ -1233,6 +1618,10 @@ export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
   const [cursor, setCursor] = useState(() => new Date())
   const [activities, setActivities] = useState([])
+  const [manualEvents, setManualEvents] = useState(() => seedTeacherCalEventsIfEmpty())
+  const [calTitle, setCalTitle] = useState('')
+  const [calDate, setCalDate] = useState('')
+  const [selectedDay, setSelectedDay] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -1256,6 +1645,10 @@ export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const days = [...Array(daysInMonth)].map((_, i) => i + 1)
 
+  useEffect(() => {
+    setSelectedDay(null)
+  }, [year, month])
+
   const markedDays = useMemo(() => {
     const m = new Set()
     merged.forEach((row) => {
@@ -1264,8 +1657,12 @@ export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
       const d = new Date(ms)
       if (d.getFullYear() === year && d.getMonth() === month) m.add(d.getDate())
     })
+    manualEvents.forEach((ev) => {
+      const d = new Date(ev.dueMs)
+      if (d.getFullYear() === year && d.getMonth() === month) m.add(d.getDate())
+    })
     return m
-  }, [merged, year, month])
+  }, [merged, manualEvents, year, month])
 
   function bump(delta) {
     setCursor(new Date(year, month + delta, 1))
@@ -1274,13 +1671,86 @@ export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
   const monthLbl = cursor.toLocaleString('es', { month: 'long', year: 'numeric' })
 
   const upcoming = useMemo(() => {
-    const out = merged.slice(0, 8).map((row, i) => ({
-      row,
-      when: teacherDueFmt(row.created_at, row.assigned_at),
-      title: row.title,
+    const manItems = manualEvents.map((ev) => ({
+      kind: 'manual',
+      id: ev.id,
+      sortMs: ev.dueMs,
+      title: ev.title,
+      when: new Date(ev.dueMs).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }),
     }))
-    return out
-  }, [merged])
+    const actItems = merged
+      .map((row) => {
+        const sortMs = unixMs(row.assigned_at) || unixMs(row.created_at)
+        const rid = row.id != null ? String(row.id) : `${String(row.title || '')}-${sortMs}`
+        return {
+          kind: 'act',
+          id: `act-${rid}`,
+          sortMs,
+          title: row.title || '—',
+          when: teacherDueFmt(row.created_at, row.assigned_at),
+          row,
+        }
+      })
+      .filter((x) => x.sortMs > 0)
+    return [...manItems, ...actItems].sort((a, b) => a.sortMs - b.sortMs).slice(0, 14)
+  }, [merged, manualEvents])
+
+  const selectedDayDetail = useMemo(() => {
+    if (selectedDay == null) return null
+    const manual = manualEvents.filter((ev) => {
+      const d = new Date(ev.dueMs)
+      return d.getFullYear() === year && d.getMonth() === month && d.getDate() === selectedDay
+    })
+    const acts = merged.filter((row) => {
+      const ms = unixMs(row.assigned_at) || unixMs(row.created_at)
+      if (!ms) return false
+      const d = new Date(ms)
+      return d.getFullYear() === year && d.getMonth() === month && d.getDate() === selectedDay
+    })
+    return { manual, acts }
+  }, [selectedDay, year, month, manualEvents, merged])
+
+  function addManualEvent() {
+    const title = calTitle.trim()
+    if (!title) {
+      notify(t('teacher.calNeedTitle'))
+      return
+    }
+    if (!calDate) {
+      notify(t('teacher.calNeedDate'))
+      return
+    }
+    const parts = calDate.split('-').map((x) => Number(x))
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) {
+      notify(t('teacher.calNeedDate'))
+      return
+    }
+    const [py, pm, pd] = parts
+    const dueMs = new Date(py, pm - 1, pd, 12, 0, 0, 0).getTime()
+    const id =
+      typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `man-${Date.now()}`
+    const entry = { id, title, dueMs }
+    setManualEvents((prev) => {
+      const next = [...prev, entry]
+      writeTeacherCalEvents(next)
+      return next
+    })
+    setCalTitle('')
+    setCalDate('')
+    notify(t('teacher.calAddedOk'))
+    if (py === year && pm - 1 === month) setSelectedDay(pd)
+  }
+
+  function removeManualEvent(id) {
+    setManualEvents((prev) => {
+      const next = prev.filter((e) => e.id !== id)
+      writeTeacherCalEvents(next)
+      return next
+    })
+    notify(t('teacher.calRemoved'))
+  }
 
   return (
     <div className="teacher-workspace-shell">
@@ -1314,13 +1784,84 @@ export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
             {blanks.map((b) => (
               <span key={`b-${b}`} className="teacher-cal-empty" aria-hidden />
             ))}
-            {days.map((dy) => (
-              <div key={dy} className={`teacher-cal-day${markedDays.has(dy) ? ' teacher-cal-day--mark' : ''}`}>
-                {dy}
-              </div>
-            ))}
+            {days.map((dy) => {
+              const cls = ['teacher-cal-day']
+              if (markedDays.has(dy)) cls.push('teacher-cal-day--mark')
+              if (selectedDay === dy) cls.push('teacher-cal-day--selected')
+              return (
+                <button
+                  key={dy}
+                  type="button"
+                  className={cls.join(' ')}
+                  onClick={() => setSelectedDay((s) => (s === dy ? null : dy))}
+                >
+                  {dy}
+                </button>
+              )
+            })}
           </div>
         </div>
+
+        <section className="teacher-cal-add" aria-labelledby="teacher-cal-add-h">
+          <h4 id="teacher-cal-add-h">{t('teacher.calAddSection')}</h4>
+          <p className="teacher-cal-add-hint">{t('teacher.calAddHint')}</p>
+          <div className="teacher-cal-add-row">
+            <label className="teacher-cal-add-field">
+              <span>{t('teacher.calFieldTitle')}</span>
+              <input
+                type="text"
+                value={calTitle}
+                onChange={(e) => setCalTitle(e.target.value)}
+                maxLength={200}
+                autoComplete="off"
+              />
+            </label>
+            <label className="teacher-cal-add-field teacher-cal-add-field--date">
+              <span>{t('teacher.calFieldDue')}</span>
+              <input type="date" value={calDate} onChange={(e) => setCalDate(e.target.value)} />
+            </label>
+            <button type="button" className="teacher-cal-add-submit" onClick={addManualEvent}>
+              <Plus size={17} strokeWidth={2.2} /> {t('teacher.calAddBtn')}
+            </button>
+          </div>
+        </section>
+
+        {selectedDay != null && selectedDayDetail && (
+          <section className="teacher-cal-day-detail" aria-labelledby="teacher-cal-day-h">
+            <h4 id="teacher-cal-day-h">
+              {t('teacher.calDayTitle')} {selectedDay}
+            </h4>
+            {selectedDayDetail.manual.length === 0 && selectedDayDetail.acts.length === 0 ? (
+              <p className="teacher-cal-day-empty">{t('teacher.calDayEmpty')}</p>
+            ) : (
+              <ul className="teacher-cal-day-list">
+                {selectedDayDetail.manual.map((ev) => (
+                  <li key={ev.id}>
+                    <span className="teacher-cal-pill">{t('teacher.calManualTag')}</span>
+                    <strong>{ev.title}</strong>
+                    <button
+                      type="button"
+                      className="teacher-cal-del"
+                      onClick={() => removeManualEvent(ev.id)}
+                      aria-label={t('teacher.calRemove')}
+                    >
+                      <Trash2 size={16} strokeWidth={2} />
+                    </button>
+                  </li>
+                ))}
+                {selectedDayDetail.acts.map((row) => (
+                  <li key={row.id != null ? `dact-${row.id}` : `dact-${String(row.title)}-${selectedDay}`}>
+                    <span className="teacher-cal-pill teacher-cal-pill--act">{t('teacher.calActTag')}</span>
+                    <strong>{row.title || '—'}</strong>
+                    <button type="button" className="teacher-cal-go-act" onClick={() => setView?.('docente_actividades')}>
+                      {t('teacher.viewAllArrow')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
         <section className="teacher-cal-upcoming">
           <div className="teacher-cal-upcoming-head">
@@ -1330,13 +1871,30 @@ export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
             </button>
           </div>
           <ul>
-            {upcoming.map((item, i) => (
-              <li key={`${item.title}-${i}`}>
+            {upcoming.map((item) => (
+              <li key={item.id}>
                 <Calendar size={17} strokeWidth={2} />
                 <span>
                   <strong>{item.title}</strong>
-                  <small>{t('teacher.dueLabel')}: {item.when}</small>
+                  <small>
+                    <span className={`teacher-cal-pill${item.kind === 'act' ? ' teacher-cal-pill--act' : ''}`}>
+                      {item.kind === 'act' ? t('teacher.calActTag') : t('teacher.calManualTag')}
+                    </span>
+                    {t('teacher.dueLabel')}: {item.when}
+                  </small>
                 </span>
+                {item.kind === 'manual' ? (
+                  <button
+                    type="button"
+                    className="teacher-cal-del"
+                    onClick={() => removeManualEvent(item.id)}
+                    aria-label={t('teacher.calRemove')}
+                  >
+                    <Trash2 size={16} strokeWidth={2} />
+                  </button>
+                ) : (
+                  <span className="teacher-cal-li-spacer" aria-hidden />
+                )}
               </li>
             ))}
           </ul>
@@ -1347,29 +1905,31 @@ export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
   )
 }
 
-function AdminPlatformLineChart({ t }) {
+function AdminPlatformLineChart({ t, usageSeries }) {
+  const months =
+    usageSeries?.months?.length === 5 ? usageSeries.months : ['—', '—', '—', '—', '—']
+  const seriesU =
+    usageSeries?.new_users?.length === 5 ? usageSeries.new_users : [0, 0, 0, 0, 0]
+  const seriesS = usageSeries?.sessions?.length === 5 ? usageSeries.sessions : [0, 0, 0, 0, 0]
+  const maxY = Math.max(8, Math.ceil(Math.max(...seriesU, ...seriesS, 1) * 1.15))
   const w = 360
   const h = 172
   const pad = { t: 16, r: 10, b: 34, l: 44 }
   const innerW = w - pad.l - pad.r
   const innerH = h - pad.t - pad.b
-  const maxY = 800
-  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May']
-  const seriesU = [420, 510, 480, 620, 590]
-  const seriesS = [310, 440, 390, 680, 720]
-  const xAt = (i) => pad.l + (i / (months.length - 1)) * innerW
+  const xAt = (i) => pad.l + (i / (months.length - 1 || 1)) * innerW
   const yAt = (v) => pad.t + innerH - (v / maxY) * innerH
   const ptsU = seriesU.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' ')
   const ptsS = seriesS.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' ')
-  const yTicks = [0, 200, 400, 600, 800]
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((r) => Math.round(maxY * r))
 
   return (
     <div className="admin-line-chart">
       <svg className="admin-line-chart-svg" viewBox={`0 0 ${w} ${h}`} aria-hidden>
-        {yTicks.map((yt) => {
+        {yTicks.map((yt, idx) => {
           const yy = yAt(yt)
           return (
-            <g key={yt}>
+            <g key={`ytick-${idx}`}>
               <line x1={pad.l} x2={w - pad.r} y1={yy} y2={yy} className="admin-line-chart-grid" />
               <text x={pad.l - 6} y={yy + 4} className="admin-line-chart-y-label">
                 {yt}
@@ -1378,7 +1938,7 @@ function AdminPlatformLineChart({ t }) {
           )
         })}
         {months.map((m, i) => (
-          <text key={m} x={xAt(i)} y={h - 10} className="admin-line-chart-x-label">
+          <text key={`${m}-${i}`} x={xAt(i)} y={h - 10} className="admin-line-chart-x-label">
             {m}
           </text>
         ))}
@@ -1397,57 +1957,30 @@ function AdminPlatformLineChart({ t }) {
   )
 }
 
-const ADMIN_GROUPS_SEED = [
-  { id: 1, name: '3A · Mañana', teacher: 'María Gómez', level: 'Primaria', students: 28, active: true },
-  { id: 2, name: '2B · Tarde', teacher: 'Luis Quiguanás', level: 'Primaria', students: 24, active: true },
-  { id: 3, name: '5A · Mañana', teacher: 'Ana Pérez', level: 'Secundaria', students: 32, active: true },
-  { id: 4, name: '1C · Mañana', teacher: 'Carlos Nastacuá', level: 'Primaria', students: 18, active: false },
-]
-
-const ADMIN_AUDIT_SEED = [
-  { id: 1, when: '01/05/2026 14:22', actor: 'admin@institucion.edu.co', action: 'LOGIN_OK', detail: 'Inicio de sesión panel admin' },
-  { id: 2, when: '01/05/2026 13:05', actor: 'María Gómez', action: 'CMS_UPDATE', detail: 'Recurso «Saludos básicos» actualizado' },
-  { id: 3, when: '30/04/2026 18:40', actor: 'Admin Principal', action: 'USER_CREATE', detail: 'Usuario juan.perez@… rol docente' },
-  { id: 4, when: '30/04/2026 09:12', actor: 'Sistema', action: 'BACKUP', detail: 'Copia de seguridad automática completada' },
-  { id: 5, when: '29/04/2026 16:33', actor: 'Luis Quiguanás', action: 'GROUP_CREATE', detail: 'Grupo 2B · Tarde creado' },
-]
-
-const ADMIN_MAIL_HISTORY_SEED = [
-  { id: 1, subject: 'Recordatorio de actividades semanales', audience: 'Toda la comunidad', when: '28/04/2026 08:50', state: 'Enviado' },
-  { id: 2, subject: 'Mantenimiento programado AVI', audience: 'Solo docentes', when: '22/04/2026 19:00', state: 'Enviado' },
-  { id: 3, subject: 'Invitación taller Nasa Yuwe', audience: 'Solo estudiantes', when: '18/04/2026 11:15', state: 'Programado' },
-]
-
-const ADMIN_SUPPORT_TICKETS_SEED = [
-  { id: 'T-1042', topic: 'No carga el diccionario offline', from: 'docente@escuela.edu.co', priority: 'Media', state: 'Abierto' },
-  { id: 'T-1041', topic: 'Solicitud nuevo grado 7B', from: 'admin@institucion.edu.co', priority: 'Baja', state: 'En progreso' },
-  { id: 'T-1038', topic: 'Error al enviar actividad', from: 'estudiante@escuela.edu.co', priority: 'Alta', state: 'Resuelto' },
-]
-
 export function AdminGruposPanel({ t, notify, navigateTo = () => {} }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
   const [tab, setTab] = useState('all')
   const [q, setQ] = useState('')
   const [groups, setGroups] = useState([])
-  const [useSeed, setUseSeed] = useState(false)
 
-  useEffect(() => {
-    getAdminGroups(token)
-      .then((d) => {
-        setUseSeed(false)
-        setGroups(Array.isArray(d.groups) ? d.groups : [])
-      })
-      .catch(() => {
-        notify(t('admin.loadErr'))
-        setUseSeed(true)
-        setGroups(ADMIN_GROUPS_SEED)
-      })
+  const reloadGroups = useCallback(async () => {
+    try {
+      const d = await getAdminGroups(token)
+      setGroups(Array.isArray(d.groups) ? d.groups : [])
+      return true
+    } catch {
+      notify(t('admin.loadErr'))
+      setGroups([])
+      return false
+    }
   }, [token, notify, t])
 
-  const source = useMemo(() => (useSeed ? ADMIN_GROUPS_SEED : groups), [useSeed, groups])
+  useEffect(() => {
+    reloadGroups()
+  }, [reloadGroups])
 
   const filtered = useMemo(() => {
-    return source.filter((g) => {
+    return groups.filter((g) => {
       if (tab === 'primaria' && g.level !== 'Primaria') return false
       if (tab === 'secundaria' && g.level !== 'Secundaria') return false
       const s = q.trim().toLowerCase()
@@ -1460,14 +1993,14 @@ export function AdminGruposPanel({ t, notify, navigateTo = () => {} }) {
           .includes(s)
       )
     })
-  }, [tab, q, source])
+  }, [tab, q, groups])
 
   const kpi = useMemo(() => {
-    const active = source.filter((g) => g.active !== false).length
-    const teachers = new Set(source.map((g) => g.teacher)).size
-    const students = source.reduce((a, g) => a + Number(g.students || 0), 0)
+    const active = groups.filter((g) => g.active !== false).length
+    const teachers = new Set(groups.map((g) => g.teacher)).size
+    const students = groups.reduce((a, g) => a + Number(g.students || 0), 0)
     return { active, teachers, students }
-  }, [source])
+  }, [groups])
 
   return (
     <div className="page-shell adm-shell admin-module admin-grupos">
@@ -1529,9 +2062,15 @@ export function AdminGruposPanel({ t, notify, navigateTo = () => {} }) {
             <Search size={17} strokeWidth={2} aria-hidden />
             <input type="search" value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={t('admin.gruposSearchPh')} autoComplete="off" />
           </label>
-          <button type="button" className="admin-filter-btn" onClick={() => notify(t('admin.filtersApplied'))}>
+          <button
+            type="button"
+            className="admin-filter-btn"
+            onClick={async () => {
+              if (await reloadGroups()) notify(t('admin.refreshOk'))
+            }}
+          >
             <SlidersHorizontal size={17} strokeWidth={2} aria-hidden />
-            {t('admin.filters')}
+            {t('admin.refreshBtn')}
           </button>
         </div>
       </div>
@@ -1581,29 +2120,31 @@ export function AdminAuditoriaPanel({ t, notify }) {
     week: 0,
     alerts_reviewed_pct: 100,
   }))
-  const [offlineSeed, setOfflineSeed] = useState(false)
+
+  const loadAudit = useCallback(async () => {
+    try {
+      const d = await getAdminAudit(token)
+      const list = Array.isArray(d.rows) ? d.rows : []
+      setRows(list)
+      setKpis(
+        d.kpis ?? {
+          today: 0,
+          week: 0,
+          alerts_reviewed_pct: 100,
+        },
+      )
+      return true
+    } catch {
+      notify(t('admin.loadErr'))
+      setRows([])
+      setKpis({ today: 0, week: 0, alerts_reviewed_pct: 100 })
+      return false
+    }
+  }, [token, notify, t])
 
   useEffect(() => {
-    getAdminAudit(token)
-      .then((d) => {
-        setOfflineSeed(false)
-        const list = Array.isArray(d.rows) ? d.rows : []
-        setRows(list.length ? list : ADMIN_AUDIT_SEED)
-        setKpis(
-          d.kpis ?? {
-            today: 0,
-            week: list.length || 0,
-            alerts_reviewed_pct: 100,
-          },
-        )
-      })
-      .catch(() => {
-        notify(t('admin.loadErr'))
-        setOfflineSeed(true)
-        setRows([...ADMIN_AUDIT_SEED])
-        setKpis({ today: 2, week: 5, alerts_reviewed_pct: 100 })
-      })
-  }, [token, notify, t])
+    loadAudit()
+  }, [loadAudit])
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -1668,7 +2209,6 @@ export function AdminAuditoriaPanel({ t, notify }) {
       <section className="role-panel admin-audit-board">
         <div className="role-panel-head">
           <h3>{t('admin.auditPanelTitle')}</h3>
-          {offlineSeed ? <small className="admin-live-badge muted">{t('admin.auditOfflineDemo')}</small> : null}
         </div>
         <div className="admin-audit-board-body">
           <div className="admin-toolbar">
@@ -1696,9 +2236,15 @@ export function AdminAuditoriaPanel({ t, notify }) {
                 <Search size={17} strokeWidth={2} aria-hidden />
                 <input type="search" value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={t('admin.auditSearchPh')} autoComplete="off" />
               </label>
-              <button type="button" className="admin-filter-btn" onClick={() => notify(t('admin.filtersApplied'))}>
+              <button
+                type="button"
+                className="admin-filter-btn"
+                onClick={async () => {
+                  if (await loadAudit()) notify(t('admin.refreshOk'))
+                }}
+              >
                 <SlidersHorizontal size={17} strokeWidth={2} aria-hidden />
-                {t('admin.filters')}
+                {t('admin.refreshBtn')}
               </button>
             </div>
           </div>
@@ -1737,7 +2283,7 @@ export function AdminAuditoriaPanel({ t, notify }) {
           </div>
         </div>
       </section>
-      <p className="admin-module-foot">{offlineSeed ? t('admin.placeholderAuditOffline') : t('admin.auditFoot')}</p>
+      <p className="admin-module-foot">{t('admin.auditFoot')}</p>
     </div>
   )
 }
@@ -1759,7 +2305,7 @@ export function AdminCorreosPanel({ t, notify }) {
       if (d.kpis) setMk(d.kpis)
     } catch {
       notify(t('admin.loadErr'))
-      setHistory([...ADMIN_MAIL_HISTORY_SEED])
+      setHistory([])
     }
   }, [token, notify, t])
 
@@ -1936,7 +2482,8 @@ export function AdminSoportePanel({ t, notify }) {
       if (d.kpis) setSk(d.kpis)
     } catch {
       notify(t('admin.loadErr'))
-      setTickets([...ADMIN_SUPPORT_TICKETS_SEED])
+      setTickets([])
+      setSk({ open: 0, resolved_month: 0, sla_hint: '—' })
     }
   }, [token, notify, t])
 
@@ -2107,14 +2654,21 @@ export function AdminDashboard({ t, notify, profile, setView }) {
   const [users, setUsers] = useState([])
   const [cms, setCms] = useState([])
   const [dash, setDash] = useState(null)
+  const [auditFeed, setAuditFeed] = useState([])
 
   useEffect(() => {
     async function load() {
       try {
-        const [u, c, d] = await Promise.all([getAdminUsers(token), getAdminCms(token), getAdminStatsDash(token)])
+        const [u, c, d, a] = await Promise.all([
+          getAdminUsers(token),
+          getAdminCms(token),
+          getAdminStatsDash(token),
+          getAdminAudit(token),
+        ])
         setUsers(u.users || [])
         setCms(c.cms_items || [])
         setDash(d)
+        setAuditFeed(Array.isArray(a.rows) ? a.rows : [])
       } catch {
         notify(t('admin.loadErr'))
       }
@@ -2123,20 +2677,23 @@ export function AdminDashboard({ t, notify, profile, setView }) {
   }, [notify, t, token])
 
   const platform = dash?.platform || {}
-  const totalUsers = platform.usuarios_registrados || users.length || 156
-  const teachers = platform.docentes || users.filter((user) => user.role === 'docente').length || 24
-  const students = platform.estudiantes || users.filter((user) => user.role === 'estudiante').length || 132
-  const corpusEntries = dash?.corpus?.entradas || 1248
-  const availability =
-    platform.disponibilidad_pct != null ? `${platform.disponibilidad_pct}%` : platform.disponibilidad || '98%'
+  const totalUsers = platform.usuarios_registrados ?? 0
+  const teachers = platform.docentes ?? 0
+  const students = platform.estudiantes ?? 0
+  const corpusEntries = dash?.corpus?.entradas ?? 0
+  const cmsCount = dash?.corpus?.cms_items_count ?? cms.length
+  const usageSeries = dash?.usage_series
 
-  const activityRows = [
-    { Icon: BookOpen, msgKey: 'admin.act1', timeKey: 'admin.act1t' },
-    { Icon: UserPlus, msgKey: 'admin.act2', timeKey: 'admin.act2t' },
-    { Icon: FileEdit, msgKey: 'admin.act3', timeKey: 'admin.act3t' },
-    { Icon: UsersRound, msgKey: 'admin.act4', timeKey: 'admin.act4t' },
-    { Icon: Mail, msgKey: 'admin.act5', timeKey: 'admin.act5t' },
-  ]
+  function auditIconForAction(action) {
+    const a = String(action || '').toUpperCase()
+    if (a.includes('USER') || a.includes('GRADE')) return UserPlus
+    if (a.includes('CMS') || a.includes('CONTENT')) return FileEdit
+    if (a.includes('MAIL')) return Mail
+    return UsersRound
+  }
+
+  const dashUsersPreview = users.slice(0, 5)
+  const dashCmsPreview = cms.slice(0, 4)
 
   return (
     <div className="role-dashboard role-dashboard--admin">
@@ -2163,7 +2720,7 @@ export function AdminDashboard({ t, notify, profile, setView }) {
         <RoleMetric icon={GraduationCap} label={t('admin.metricTeachersAct')} value={teachers} tone="purple" />
         <RoleMetric icon={UserCheck} label={t('admin.metricStudentsAct')} value={students} tone="green" />
         <RoleMetric icon={Database} label={t('admin.metricCorpusRes')} value={corpusEntries} tone="gold" />
-        <RoleMetric icon={Gauge} label={t('admin.metricAvailabilitySys')} value={availability} tone="green" />
+        <RoleMetric icon={FileText} label={t('admin.metricCmsItems')} value={cmsCount} tone="green" />
       </section>
 
       <div className="admin-dash-split">
@@ -2172,19 +2729,36 @@ export function AdminDashboard({ t, notify, profile, setView }) {
             <h3>{t('admin.activityTitle')}</h3>
           </div>
           <ul className="admin-activity-feed">
-            {activityRows.map((row) => (
-              <li key={row.msgKey} className="admin-activity-row">
+            {auditFeed.length ? (
+              auditFeed.slice(0, 5).map((row) => {
+                const RowIcon = auditIconForAction(row.action)
+                return (
+                  <li key={`${row.id}-${row.when}`} className="admin-activity-row">
+                    <span className="admin-activity-icon">
+                      <RowIcon size={18} strokeWidth={2} />
+                    </span>
+                    <div className="admin-activity-body">
+                      <p>
+                        <strong>{row.action}</strong> · {row.actor}
+                      </p>
+                      <p className="admin-cell-muted">{row.detail}</p>
+                      <time>{row.when}</time>
+                    </div>
+                  </li>
+                )
+              })
+            ) : (
+              <li className="admin-activity-row">
                 <span className="admin-activity-icon">
-                  <row.Icon size={18} strokeWidth={2} />
+                  <BookOpen size={18} strokeWidth={2} />
                 </span>
                 <div className="admin-activity-body">
-                  <p>{t(row.msgKey)}</p>
-                  <time dateTime={t(row.timeKey)}>{t(row.timeKey)}</time>
+                  <p>{t('admin.auditEmptyFilter')}</p>
                 </div>
               </li>
-            ))}
+            )}
           </ul>
-          <button type="button" className="admin-activity-view-all" onClick={() => setView('admin_reportes')}>
+          <button type="button" className="admin-activity-view-all" onClick={() => setView('admin_auditoria')}>
             {t('admin.viewAll')} →
           </button>
         </section>
@@ -2193,7 +2767,7 @@ export function AdminDashboard({ t, notify, profile, setView }) {
           <div className="role-panel-head">
             <h3>{t('admin.platformUsageTitle')}</h3>
           </div>
-          <AdminPlatformLineChart t={t} />
+          <AdminPlatformLineChart t={t} usageSeries={usageSeries} />
         </section>
       </div>
 
@@ -2216,27 +2790,28 @@ export function AdminDashboard({ t, notify, profile, setView }) {
                 </tr>
               </thead>
               <tbody>
-                {(users.length
-                  ? users.slice(0, 5)
-                  : [
-                      { id: 1, display_name: 'María Gómez', email: 'maria.gomez@nasa.edu', role: 'docente', active: true },
-                      { id: 2, display_name: 'Luis Quiguanás', email: 'luis.quiguanas@nasa.edu', role: 'estudiante', active: true },
-                      { id: 3, display_name: 'Ana Pérez', email: 'ana.perez@nasa.edu', role: 'estudiante', active: true },
-                    ]
-                ).map((user) => (
-                  <tr key={user.id}>
-                    <td>
-                      <strong>{user.display_name}</strong>
-                      <small>{user.email}</small>
-                    </td>
-                    <td>{labelSlug(user.role)}</td>
-                    <td>
-                      <span className={user.active ? 'status-pill ok' : 'status-pill'}>
-                        {user.active ? t('admin.yes') : t('admin.no')}
-                      </span>
+                {dashUsersPreview.length ? (
+                  dashUsersPreview.map((user) => (
+                    <tr key={user.id}>
+                      <td>
+                        <strong>{user.display_name}</strong>
+                        <small>{user.email}</small>
+                      </td>
+                      <td>{labelSlug(user.role)}</td>
+                      <td>
+                        <span className={user.active ? 'status-pill ok' : 'status-pill'}>
+                          {user.active ? t('admin.yes') : t('admin.no')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3} className="admin-cell-muted">
+                      {t('admin.noUsers')}
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -2251,26 +2826,24 @@ export function AdminDashboard({ t, notify, profile, setView }) {
           }
         >
           <div className="role-task-list">
-            {(cms.length
-              ? cms.slice(0, 4)
-              : [
-                  { id: 'cms-1', kind: 'Lección', title: 'Saludos básicos' },
-                  { id: 'cms-2', kind: 'Vocabulario', title: 'Números en Nasa Yuwe' },
-                  { id: 'cms-3', kind: 'Diálogo', title: 'Conversación en clase' },
-                ]
-            ).map((item) => (
-              <article key={item.id} className="role-task">
-                <span>
-                  <FileText size={15} />
-                </span>
-                <div>
-                  <strong>{item.title}</strong>
-                  <small>
-                    {labelSlug(item.kind)} · {t('admin.statusPublished')}
-                  </small>
-                </div>
-              </article>
-            ))}
+            {dashCmsPreview.length ? (
+              dashCmsPreview.map((item) => (
+                <article key={item.id} className="role-task">
+                  <span>
+                    <FileText size={15} />
+                  </span>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <small>
+                      {labelSlug(item.kind)} ·{' '}
+                      {String(item.status || '').toLowerCase() === 'draft' ? t('admin.statusDraft') : t('admin.statusPublished')}
+                    </small>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="doc-empty-visual">{t('admin.cmsEmpty')}</p>
+            )}
           </div>
         </RolePanel>
       </div>
@@ -2287,6 +2860,8 @@ export function StudentActivitiesRoute({
   categories,
   setCategory,
   surface = 'activities',
+  practiceFromLearn = null,
+  onConsumePracticeFromLearn,
 }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
   const isPractice = surface === 'practice'
@@ -2307,9 +2882,28 @@ export function StudentActivitiesRoute({
   const [studentGrade, setStudentGrade] = useState(null)
   const [studentGroups, setStudentGroups] = useState([])
   const [assignedActivities, setAssignedActivities] = useState([])
+  const [activityCatalog, setActivityCatalog] = useState([])
   const [practiceTab, setPracticeTab] = useState('vocabulario')
+  const [corpusExploreTab, setCorpusExploreTab] = useState(null)
   const timerRef = useRef(null)
   const timedOutRef = useRef(false)
+  const learnPracticeBootHandledRef = useRef(null)
+  const practiceSessionRef = useRef({ tabId: '', category: '' })
+
+  const assignedIdSet = useMemo(() => new Set(assignedActivities.map((a) => Number(a.id))), [assignedActivities])
+  const sortedActivityCatalog = useMemo(() => {
+    const list = Array.isArray(activityCatalog) ? [...activityCatalog] : []
+    list.sort((a, b) => {
+      const ar = assignedIdSet.has(Number(a.id)) ? 0 : 1
+      const br = assignedIdSet.has(Number(b.id)) ? 0 : 1
+      if (ar !== br) return ar - br
+      return (Number(b.created_at) || 0) - (Number(a.created_at) || 0)
+    })
+    return list
+  }, [activityCatalog, assignedIdSet])
+
+  const catFp = useMemo(() => (Array.isArray(categories) ? categories.join('\0') : ''), [categories])
+  const exploreCats = useMemo(() => buildPracticeExploreCategories(categories), [catFp])
 
   useEffect(() => {
     async function loadAssigned() {
@@ -2319,8 +2913,9 @@ export function StudentActivitiesRoute({
         setStudentGrade(school?.grade ?? null)
         setStudentGroups(Array.isArray(school?.groups) ? school.groups : [])
         setAssignedActivities(Array.isArray(acts?.activities) ? acts.activities : [])
+        setActivityCatalog(Array.isArray(acts?.catalog) ? acts.catalog : [])
       } catch {
-        /* ignore */
+        notify(t('student.activitiesLoadErr'))
       }
     }
     loadAssigned()
@@ -2339,17 +2934,22 @@ export function StudentActivitiesRoute({
   /**
    * @param {null | { category?: string; difficulty?: string; mode?: string }} preset
    *        Si viene de una actividad asignada, categoría / dificultad / modo del docente.
+   * @param {string | null} practiceTabOverride — id de pestaña (p. ej. 'gramatica') al iniciar desde tarjetas del corpus.
    */
-  async function loadFlow(preset = null) {
+  async function loadFlow(preset = null, practiceTabOverride = null) {
+    if (practiceTabOverride != null && isPractice) {
+      setPracticeTab(practiceTabOverride)
+    }
     setStep('quiz')
     setIdx(0)
     setChosen(null)
     setRevealed(false)
     timedOutRef.current = false
+    const effectivePracticeTab = practiceTabOverride != null ? practiceTabOverride : practiceTab
     const resolvedMode = isPractice
       ? preset?.mode != null
         ? normalizeActivityMode(preset.mode)
-        : (PRACTICE_TAB_DEF.find((x) => x.id === practiceTab)?.mode ?? 'quiz')
+        : (PRACTICE_TAB_DEF.find((x) => x.id === effectivePracticeTab)?.mode ?? 'quiz')
       : mode
     const resolvedDiff = isPractice
       ? preset?.difficulty != null
@@ -2357,23 +2957,124 @@ export function StudentActivitiesRoute({
         : 'intermedio'
       : difficulty
     const limit = isPractice ? 10 : 6
-    const catForApi = String(preset?.category || category || 'comida').trim() || 'comida'
+    const catPrimary = String(preset?.category || category || 'comida').trim() || 'comida'
     if (preset?.category && setCategory) setCategory(String(preset.category).trim())
+
+    const catPool = []
+    const pushCat = (c) => {
+      const s = String(c || '').trim()
+      if (s && !catPool.includes(s)) catPool.push(s)
+    }
+    pushCat(catPrimary)
+    if (Array.isArray(categories)) {
+      for (const c of categories) pushCat(c)
+    }
+    for (const c of CORPUS_PRACTICE_CATEGORY_FALLBACKS) pushCat(c)
+
+    const tryFetch = async (catList, modeTry, diffTry) => {
+      let lastErr = ''
+      for (const catTry of catList) {
+        try {
+          const data = await getActivityAdv(catTry, limit, diffTry, modeTry)
+          const got = data.questions || []
+          if (got.length) {
+            return {
+              qs: got.map((item) => ({ ...item })),
+              catWin: catTry,
+              diffWin: diffTry,
+              lastErr: '',
+            }
+          }
+        } catch (e) {
+          lastErr = e?.message || String(e)
+        }
+      }
+      return { qs: [], catWin: null, diffWin: diffTry, lastErr }
+    }
+
     try {
-      const data = await getActivityAdv(catForApi, limit, resolvedDiff, resolvedMode)
-      const qs = data.questions || []
-      setQuestions(qs.map((item) => ({ ...item })))
+      let modeAdaptHintSent = false
+      let { qs, catWin, diffWin, lastErr } = await tryFetch(catPool, resolvedMode, resolvedDiff)
+
+      if (!qs.length && isPractice) {
+        const relaxModes =
+          resolvedMode === 'imagen' ? ['quiz', 'completar'] : resolvedMode === 'completar' ? ['quiz'] : []
+        for (const m of relaxModes) {
+          const r = await tryFetch(catPool, m, resolvedDiff)
+          if (r.qs.length) {
+            ;({ qs, catWin, diffWin, lastErr } = r)
+            notify(t('practice.modeAdaptedHint'))
+            modeAdaptHintSent = true
+            break
+          }
+        }
+      }
+
+      if (!qs.length && isPractice && resolvedDiff !== 'facil') {
+        const r = await tryFetch(catPool, resolvedMode, 'facil')
+        if (r.qs.length) {
+          ;({ qs, catWin, diffWin, lastErr } = r)
+        }
+      }
+
+      if (!qs.length && isPractice) {
+        for (const m of ['quiz', 'completar', 'imagen']) {
+          const r = await tryFetch(catPool, m, 'facil')
+          if (r.qs.length) {
+            ;({ qs, catWin, diffWin, lastErr } = r)
+            if (!modeAdaptHintSent && m !== resolvedMode) {
+              notify(t('practice.modeAdaptedHint'))
+            }
+            break
+          }
+        }
+      }
+
+      setQuestions(qs)
       if (!qs.length) {
-        notify(t('practice.empty'))
+        notify(lastErr || t('practice.empty'))
         setStep('hub')
         return
       }
-      const base = resolvedDiff === 'facil' ? 420 : resolvedDiff === 'avanzado' ? 180 : 300
+      if (!preset?.category && setCategory && catWin && catWin !== catPrimary) {
+        setCategory(catWin)
+      }
+      if (isPractice) {
+        practiceSessionRef.current = {
+          tabId: effectivePracticeTab,
+          category: String(catWin || catPrimary).trim() || 'comida',
+        }
+      }
+      const base = diffWin === 'facil' ? 420 : diffWin === 'avanzado' ? 180 : 300
       setSeconds(base)
     } catch (e) {
       notify(e.message)
       setStep('hub')
     }
+  }
+
+  useEffect(() => {
+    if (!isPractice || !practiceFromLearn?._bootKey) return
+    if (learnPracticeBootHandledRef.current === practiceFromLearn._bootKey) return
+    learnPracticeBootHandledRef.current = practiceFromLearn._bootKey
+    const cat = String(practiceFromLearn.category || '').trim() || 'comida'
+    const tabId = practiceFromLearn.tabId || 'vocabulario'
+    if (setCategory) setCategory(cat)
+    onConsumePracticeFromLearn?.()
+    void loadFlow({ category: cat }, tabId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- arranque único por _bootKey; loadFlow usa preset explícito
+  }, [isPractice, practiceFromLearn, onConsumePracticeFromLearn, setCategory])
+
+  function startActivityFromCatalog(activity) {
+    const cat = String(activity?.category ?? category ?? 'comida').trim() || 'comida'
+    if (activity?.category && setCategory) setCategory(cat)
+    setDifficulty(normalizeDifficulty(activity?.difficulty))
+    setMode(normalizeActivityMode(activity?.mode))
+    loadFlow({
+      category: cat,
+      difficulty: activity?.difficulty,
+      mode: activity?.mode,
+    })
   }
 
   useEffect(() => {
@@ -2404,8 +3105,25 @@ export function StudentActivitiesRoute({
   }
 
   function nextQuestion() {
-    if (idx + 1 >= questions.length) finalize(false)
-    else {
+    if (idx + 1 >= questions.length) {
+      if (isPractice && practiceSessionRef.current.tabId) {
+        markPracticeProgress(
+          practiceSessionRef.current.tabId,
+          practiceSessionRef.current.category,
+          1,
+          false,
+        )
+      }
+      finalize(false)
+    } else {
+      if (isPractice && practiceSessionRef.current.tabId) {
+        markPracticeProgress(
+          practiceSessionRef.current.tabId,
+          practiceSessionRef.current.category,
+          (idx + 1) / Math.max(1, questions.length),
+          false,
+        )
+      }
       setIdx(idx + 1)
       setChosen(null)
       setRevealed(false)
@@ -2445,20 +3163,28 @@ export function StudentActivitiesRoute({
               </div>
             </section>
 
-            {assignedActivities.length ? (
+            {sortedActivityCatalog.length ? (
               <section className="act-hub-card act-hub-card--assigned">
                 <div className="act-card-head">
-                  <h3>Actividades asignadas a tu grado</h3>
-                  <small>Estas actividades fueron enviadas por tu docente.</small>
+                  <h3>{t('student.activityCatalogTitle')}</h3>
+                  <small>{t('student.activityCatalogSub')}</small>
                 </div>
                 <div className="act-assigned-list">
-                  {assignedActivities.slice(0, 5).map((a) => (
+                  {sortedActivityCatalog.map((a) => (
                     <article key={a.id} className="act-assigned-item">
-                      <strong>{a.title}</strong>
+                      <div className="act-assigned-item-head">
+                        <strong>{a.title}</strong>
+                        {assignedIdSet.has(Number(a.id)) ? (
+                          <span className="status-pill ok">{t('student.activityAssignedBadge')}</span>
+                        ) : null}
+                      </div>
                       <small>
                         {a.category} · {a.difficulty} · {a.mode}
                       </small>
-                      <p>{a.description}</p>
+                      {a.description ? <p>{a.description}</p> : null}
+                      <button type="button" className="practice-assignment-go" onClick={() => startActivityFromCatalog(a)}>
+                        {t('act.start')}
+                      </button>
                     </article>
                   ))}
                 </div>
@@ -2533,6 +3259,8 @@ export function StudentActivitiesRoute({
               <div className="quiz-img-row">
                 <img src={q.image_url} alt="" className="quiz-img" />
               </div>
+            ) : q.type === 'imagen' ? (
+              <p className="quiz-img-fallback">{t('practice.imageUnavailable')}</p>
             ) : null}
             <h3>{q.prompt}</h3>
             <div className="answers-grid act-answers">
@@ -2600,14 +3328,31 @@ export function StudentActivitiesRoute({
   }
 
   function startPracticeFromAssignment(activity) {
+    setCorpusExploreTab(null)
     const cat = String(activity?.category ?? category ?? 'comida').trim() || 'comida'
     if (activity?.category && setCategory) setCategory(cat)
-    setPracticeTab(practiceTabFromServerMode(activity?.mode))
-    loadFlow({
-      category: cat,
-      difficulty: activity?.difficulty,
-      mode: activity?.mode,
-    })
+    const tabId = practiceTabFromServerMode(activity?.mode)
+    loadFlow(
+      {
+        category: cat,
+        difficulty: activity?.difficulty,
+        mode: activity?.mode,
+      },
+      tabId,
+    )
+  }
+
+  function handlePracticeScoreToHub() {
+    const { tabId, category } = practiceSessionRef.current
+    if (isPractice && tabId && category) {
+      markPracticeProgress(tabId, category, 1, true)
+    }
+    setStep('hub')
+  }
+
+  function openCorpusExplore(tabId) {
+    setCorpusExploreTab(tabId)
+    setPracticeTab(tabId)
   }
 
   const practiceCue = q ? spotlightWord(q) : ''
@@ -2624,7 +3369,9 @@ export function StudentActivitiesRoute({
                 {t('practice.pageTitle')}
                 <span className="learn-mock-title-accent" aria-hidden />
               </h2>
-              <p className="learn-mock-sub">{t('practice.pageSubLong')}</p>
+              {t('practice.pageSubLong').trim() ? (
+                <p className="learn-mock-sub">{t('practice.pageSubLong')}</p>
+              ) : null}
             </div>
             <div className="learn-mock-art" aria-hidden>
               <img src={learnWelcomeIllustration} alt="" className="learn-mock-art-img" />
@@ -2669,12 +3416,17 @@ export function StudentActivitiesRoute({
                   <h3>{t('practice.assignmentsHeading')}</h3>
                   <p className="practice-grade-activities-sub">{t('practice.assignmentsSub')}</p>
                 </div>
-                {assignedActivities.length ? (
+                {sortedActivityCatalog.length ? (
                   <ul className="practice-assignment-rows">
-                    {assignedActivities.slice(0, 20).map((a) => (
+                    {sortedActivityCatalog.slice(0, 60).map((a) => (
                       <li key={a.id} className="practice-assignment-row">
                         <div className="practice-assignment-body">
                           <strong className="practice-assignment-title">{a.title}</strong>
+                          {assignedIdSet.has(Number(a.id)) ? (
+                            <span className="status-pill ok practice-assignment-badge">
+                              {t('student.activityAssignedBadge')}
+                            </span>
+                          ) : null}
                           {a.description ? <p className="practice-assignment-desc">{a.description}</p> : null}
                           <div className="practice-assignment-meta">
                             <span>{titleLabel(String(a.category || '').trim() || category)}</span>
@@ -2693,49 +3445,183 @@ export function StudentActivitiesRoute({
                     ))}
                   </ul>
                 ) : (
-                  <p className="practice-assignments-empty">{t('practice.noAssignmentsSub')}</p>
+                  <div className="practice-assignments-fallback">
+                    <p className="practice-assignments-empty">{t('practice.noAssignmentsShort')}</p>
+                    <div className="practice-suggested-corpus" aria-labelledby="practice-suggested-title">
+                      <h4 id="practice-suggested-title" className="practice-suggested-title">
+                        {t('practice.suggestedCorpusBlockTitle')}
+                      </h4>
+                      <p className="practice-suggested-sub">{t('practice.suggestedCorpusBlockSub')}</p>
+                      <ul className="practice-assignment-rows practice-suggested-rows">
+                        {PRACTICE_TAB_DEF.map((tab) => {
+                          const TabIcon = PRACTICE_TAB_ICONS[tab.id] || BookOpen
+                          return (
+                            <li key={tab.id} className="practice-assignment-row practice-assignment-row--suggested">
+                              <div className="practice-assignment-body">
+                                <div className="practice-suggested-row-head">
+                                  <span className="practice-suggested-row-ico" aria-hidden>
+                                    <TabIcon size={20} strokeWidth={2} />
+                                  </span>
+                                  <strong className="practice-assignment-title">{t(tab.labelKey)}</strong>
+                                  <span className="practice-suggested-badge">{t('practice.corpusBadge')}</span>
+                                </div>
+                                <p className="practice-assignment-desc practice-suggested-desc">
+                                  {t('practice.suggestedRowExplore')}
+                                </p>
+                                <div className="practice-assignment-meta">
+                                  <span>{titleLabel(String(category || '').trim() || 'comida')}</span>
+                                  <span>{t('act.intermedio')}</span>
+                                  <span>{activityModeLabel(t, tab.mode)}</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="practice-assignment-go"
+                                onClick={() => openCorpusExplore(tab.id)}
+                              >
+                                {t('practice.corpusOpenList')}
+                              </button>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  </div>
                 )}
               </section>
 
-              <section className="practice-free-panel" aria-labelledby="practice-free-title">
-                <div className="practice-free-panel-head">
-                  <div className="practice-free-panel-icon" aria-hidden>
-                    <Target size={26} strokeWidth={2} />
-                  </div>
-                  <div className="practice-free-panel-intro">
-                    <h3 id="practice-free-title" className="practice-free-panel-title">
-                      {t('practice.freePanelTitle')}
-                    </h3>
-                    <p className="practice-free-panel-sub">{t('practice.freePracticeHint')}</p>
-                  </div>
-                </div>
-                <div className="practice-free-panel-body">
-                  <div className="learn-mock-filters practice-mock-tabs">
-                    {PRACTICE_TAB_DEF.map((tab) => (
+              <section
+                className={`practice-free-panel ${corpusExploreTab ? 'practice-free-panel--explore' : 'practice-free-panel--corpus'}`}
+                aria-labelledby={corpusExploreTab ? 'practice-explore-title' : 'practice-free-title'}
+              >
+                {corpusExploreTab ? (
+                  <>
+                    <div className="practice-explore-toolbar">
                       <button
-                        key={tab.id}
                         type="button"
-                        className={practiceTab === tab.id ? 'learn-mock-chip active' : 'learn-mock-chip'}
-                        onClick={() => setPracticeTab(tab.id)}
+                        className="practice-explore-back"
+                        onClick={() => setCorpusExploreTab(null)}
                       >
-                        {t(tab.labelKey)}
+                        <ArrowLeft size={18} strokeWidth={2} aria-hidden /> {t('practice.exploreBack')}
                       </button>
-                    ))}
-                  </div>
-                  <label className="practice-mock-cat">
-                    <span>{t('corpus.categoriesTitle')}</span>
-                    <select value={category} onChange={(ev) => setCategory(ev.target.value)}>
-                      {(categories?.length ? categories : ['comida']).map((c) => (
-                        <option key={c} value={c}>
-                          {titleLabel(c)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button type="button" className="practice-mock-start" onClick={() => loadFlow(null)}>
-                    {t('practice.startSession')}
-                  </button>
-                </div>
+                    </div>
+                    <div className="practice-free-panel-head practice-explore-head">
+                      <div className="practice-free-panel-icon" aria-hidden>
+                        {(() => {
+                          const HeadIco = PRACTICE_TAB_ICONS[corpusExploreTab] || BookOpen
+                          return <HeadIco size={28} strokeWidth={2} />
+                        })()}
+                      </div>
+                      <div className="practice-free-panel-intro">
+                        <h3 id="practice-explore-title" className="practice-free-panel-title">
+                          {t('practice.exploreTitle', {
+                            mode: t(PRACTICE_TAB_DEF.find((x) => x.id === corpusExploreTab)?.labelKey || 'practice.tabVocab'),
+                          })}
+                        </h3>
+                        <p className="practice-free-panel-sub">{t('practice.exploreSub')}</p>
+                      </div>
+                    </div>
+                    <ul className="practice-explore-list">
+                      {exploreCats.map((catSlug) => {
+                        const prog = getPracticeRowProgress(corpusExploreTab, catSlug)
+                        const RowIcon = PRACTICE_TAB_ICONS[corpusExploreTab] || BookOpen
+                        const statusKey = prog.done ? 'done' : prog.pct > 0 ? 'doing' : 'todo'
+                        return (
+                          <li key={`${corpusExploreTab}-${catSlug}`} className="practice-explore-item">
+                            <span className="practice-explore-item-icon" aria-hidden>
+                              <RowIcon size={22} strokeWidth={2} />
+                            </span>
+                            <div className="practice-explore-item-main">
+                              <div className="practice-explore-item-top">
+                                <strong className="practice-explore-item-title">{titleLabel(catSlug)}</strong>
+                                <span className={`practice-explore-status practice-explore-status--${statusKey}`}>
+                                  {prog.done
+                                    ? t('practice.statusDone')
+                                    : prog.pct > 0
+                                      ? t('practice.statusProgress')
+                                      : t('practice.statusTodo')}
+                                </span>
+                              </div>
+                              <div className="practice-explore-bar" aria-hidden>
+                                <span className="practice-explore-bar-fill" style={{ width: `${prog.pct}%` }} />
+                              </div>
+                              <p className="practice-explore-pct">{prog.pct}%</p>
+                            </div>
+                            <button
+                              type="button"
+                              className="practice-explore-go"
+                              onClick={() => void loadFlow({ category: catSlug }, corpusExploreTab)}
+                            >
+                              {t('practice.corpusStart')}
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <div className="practice-free-panel-head">
+                      <div className="practice-free-panel-icon" aria-hidden>
+                        <Target size={26} strokeWidth={2} />
+                      </div>
+                      <div className="practice-free-panel-intro">
+                        <h3 id="practice-free-title" className="practice-free-panel-title">
+                          {t('practice.corpusModesTitle')}
+                        </h3>
+                        <p className="practice-free-panel-sub">{t('practice.corpusModesSub')}</p>
+                      </div>
+                    </div>
+                    <div className="practice-free-panel-body">
+                      <div className="practice-corpus-modes-grid" role="list">
+                        {PRACTICE_TAB_DEF.map((tab) => {
+                          const TabIcon = PRACTICE_TAB_ICONS[tab.id] || BookOpen
+                          return (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              role="listitem"
+                              className="practice-corpus-mode-card"
+                              onClick={() => openCorpusExplore(tab.id)}
+                            >
+                              <span className="practice-corpus-mode-icon" aria-hidden>
+                                <TabIcon size={22} strokeWidth={2} />
+                              </span>
+                              <strong className="practice-corpus-mode-title">{t(tab.labelKey)}</strong>
+                              <span className="practice-corpus-mode-cta">{t('practice.corpusOpenList')}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="practice-corpus-customize-label">{t('practice.corpusCustomize')}</p>
+                      <div className="learn-mock-filters practice-mock-tabs">
+                        {PRACTICE_TAB_DEF.map((tab) => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            className={practiceTab === tab.id ? 'learn-mock-chip active' : 'learn-mock-chip'}
+                            onClick={() => setPracticeTab(tab.id)}
+                          >
+                            {t(tab.labelKey)}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="practice-mock-cat">
+                        <span>{t('corpus.categoriesTitle')}</span>
+                        <select value={category} onChange={(ev) => setCategory(ev.target.value)}>
+                          {(categories?.length ? categories : ['comida']).map((c) => (
+                            <option key={c} value={c}>
+                              {titleLabel(c)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button type="button" className="practice-mock-start" onClick={() => loadFlow(null)}>
+                        {t('practice.startSession')}
+                      </button>
+                    </div>
+                  </>
+                )}
               </section>
             </>
           )}
@@ -2782,10 +3668,24 @@ export function StudentActivitiesRoute({
                   <p className="practice-subq">{t(practiceQKey)}</p>
                   <p className="practice-prompt-fine">{q.prompt}</p>
                 </div>
+              ) : q.type === 'imagen' ? (
+                <div className="practice-imagen-wrap practice-imagen-wrap--fallback">
+                  <p className="practice-subq">{t('practice.imageUnavailable')}</p>
+                  <p className="practice-prompt-fine">{q.prompt}</p>
+                </div>
               ) : (
                 <div className="practice-spotlight">
-                  {(practiceTab === 'escucha' || practiceTab === 'vocabulario') && (
-                    <button type="button" className="practice-speak-btn" aria-label={t('practice.audioSoon')} onClick={() => notify(t('practice.audioSoon'))}>
+                  {(practiceTab === 'escucha' || practiceTab === 'vocabulario' || practiceTab === 'gramatica' || practiceTab === 'escritura') && (
+                    <button
+                      type="button"
+                      className="practice-speak-btn"
+                      aria-label={t('practice.listenCue')}
+                      onClick={() => {
+                        const line = [practiceCue, q?.espanol].filter(Boolean).join('. ')
+                        const ok = speakText(line || q?.prompt || '', 'es')
+                        if (!ok) notify(t('practice.audioUnavailable'))
+                      }}
+                    >
                       <Volume2 size={26} strokeWidth={2} aria-hidden />
                     </button>
                   )}
@@ -2891,7 +3791,7 @@ export function StudentActivitiesRoute({
                   ))}
                 </ul>
               </details>
-              <button type="button" className="practice-mock-start" onClick={() => setStep('hub')}>
+              <button type="button" className="practice-mock-start" onClick={handlePracticeScoreToHub}>
                 {t('practice.backToHub')}
               </button>
             </section>
@@ -2975,10 +3875,13 @@ function StudentLearnRail({ t, navigateTo }) {
 export function StudentLearnRoute({ t, categories, setCategory, navigateTo }) {
   const [topicFilter, setTopicFilter] = useState('todos')
 
-  function openLearnModule(slugPrefer) {
-    const c = slugForLearnModule(slugPrefer, categories)
+  function openLearnModule(row) {
+    const c = resolveLearnCategoryForCorpus(row.slug, categories)
+    const tabId = LEARN_FILTER_TO_PRACTICE_TAB[row.filterKey] || 'vocabulario'
     setCategory?.(c)
-    navigateTo('diccionario', { dictTab: 'categoria' })
+    navigateTo('practicar', {
+      practiceFromLearn: { category: c, tabId, _bootKey: Date.now() },
+    })
   }
 
   const filteredModules = LEARN_MODULES.filter(
@@ -2995,7 +3898,10 @@ export function StudentLearnRoute({ t, categories, setCategory, navigateTo }) {
                 {t('learn.pageTitle')}
                 <span className="learn-mock-title-accent" aria-hidden />
               </h2>
-              <p className="learn-mock-sub">{t('learn.pageSubLong')}</p>
+              {t('learn.pageSubLong').trim() ? (
+                <p className="learn-mock-sub">{t('learn.pageSubLong')}</p>
+              ) : null}
+              {t('learn.ctaHint').trim() ? <p className="learn-mock-cta-hint">{t('learn.ctaHint')}</p> : null}
             </div>
             <div className="learn-mock-art" aria-hidden>
               <img src={learnWelcomeIllustration} alt="" className="learn-mock-art-img" />
@@ -3043,7 +3949,7 @@ export function StudentLearnRoute({ t, categories, setCategory, navigateTo }) {
                       <button
                         type="button"
                         className="learn-module-cta"
-                        onClick={() => openLearnModule(row.slug)}
+                        onClick={() => openLearnModule(row)}
                       >
                         {row.pct > 0 ? t('learn.continue') : t('learn.start')}
                       </button>
@@ -3066,10 +3972,16 @@ export function StudentLearnRoute({ t, categories, setCategory, navigateTo }) {
   )
 }
 
-export function StudentPracticeRoute({ navigateTo, ...props }) {
+export function StudentPracticeRoute({ navigateTo, practiceFromLearn, onConsumePracticeFromLearn, ...props }) {
   return (
     <div className="practice-route-wrap">
-      <StudentActivitiesRoute {...props} navigateTo={navigateTo} surface="practice" />
+      <StudentActivitiesRoute
+        {...props}
+        navigateTo={navigateTo}
+        surface="practice"
+        practiceFromLearn={practiceFromLearn}
+        onConsumePracticeFromLearn={onConsumePracticeFromLearn}
+      />
     </div>
   )
 }
@@ -3233,6 +4145,19 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
     notify(t('teacher.csvOk'))
   }
 
+  async function unassignStudent(studentId) {
+    if (!report?.group?.id || !studentId) return
+    try {
+      await postTeacherGroupUnassign(token, { group_id: report.group.id, student_id: studentId })
+      notify(t('teacher.unassignOk'))
+      const rp = await getTeacherGroupReport(token, report.group.id)
+      setReport(rp)
+      reload()
+    } catch (e) {
+      notify(e.message)
+    }
+  }
+
   return (
     <div className="teacher-workspace-shell">
       <div className="page-shell doc-shell teacher-module teacher-groups-legacy">
@@ -3274,12 +4199,17 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
           </button>
           <h3>{report.group?.name}</h3>
           <p>
-            {t('teacher.reportSummary')}: {report.summary?.total_estudiantes ?? 0}
+            {t('teacher.reportSummary')}: {report.summary?.total_estudiantes ?? 0} · {t('teacher.reportActsAssigned')}:{' '}
+            {report.summary?.actividades_asignadas_grupo ?? 0} · {t('teacher.reportActAvg')}:{' '}
+            {report.summary?.promedio_actividades_por_estudiante ?? '—'}
           </p>
           <ul>
             {(report.students || []).map((st) => (
               <li key={st.id}>
-                <strong>{st.display_name}</strong> — {st.email}
+                <strong>{st.display_name}</strong> — {st.email}{' '}
+                <button type="button" className="secondary-b" onClick={() => unassignStudent(st.id)}>
+                  {t('teacher.unassignStudent')}
+                </button>
               </li>
             ))}
           </ul>
@@ -3370,20 +4300,33 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
                   <h4>{t('teacher.pickStudents', { group: pickedGroup.name })}</h4>
                   <input value={qstud} onChange={(ev) => setQstud(ev.target.value)} placeholder={t('teacher.searchStudent')} />
                   <div className="student-chip-list">
-                    {students.map((s) => (
-                      <label key={s.id} className="student-chip">
-                        <input
-                          type="checkbox"
-                          checked={selIds.includes(s.id)}
-                          onChange={(ev) => {
-                            setSelIds((ids) =>
-                              ev.target.checked ? [...ids, s.id] : ids.filter((x) => x !== s.id),
-                            )
-                          }}
-                        />
-                        <span>{s.display_name}</span>
-                      </label>
-                    ))}
+                    {students.map((s) => {
+                      const gid = pickedGroup?.id
+                      const inOther = s.member_group_id && gid && Number(s.member_group_id) !== Number(gid)
+                      const inThis = s.member_group_id && gid && Number(s.member_group_id) === Number(gid)
+                      const disabled = inOther || inThis
+                      return (
+                        <label
+                          key={s.id}
+                          className={`student-chip${disabled ? ' student-chip--disabled' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={disabled}
+                            checked={inThis || selIds.includes(s.id)}
+                            onChange={(ev) => {
+                              if (disabled) return
+                              setSelIds((ids) =>
+                                ev.target.checked ? [...ids, s.id] : ids.filter((x) => x !== s.id),
+                              )
+                            }}
+                          />
+                          <span>{s.display_name}</span>
+                          {inOther ? <small> ({t('teacher.assignBlockedOther')})</small> : null}
+                          {inThis ? <small> ({t('teacher.assignInGroup')})</small> : null}
+                        </label>
+                      )
+                    })}
                   </div>
                   <div className="assign-actions">
                     <button type="button" onClick={assign}>
@@ -3518,8 +4461,10 @@ export function AdminUsersPanel({ t, notify }) {
       const [data, g] = await Promise.all([getAdminUsers(token), getAdminGrades(token)])
       setUsers(data.users || [])
       setGrades(g.grades || [])
+      return true
     } catch {
       notify(t('admin.loadErr'))
+      return false
     }
   }
 
@@ -3588,6 +4533,11 @@ export function AdminUsersPanel({ t, notify }) {
 
   async function submitCreateUser(ev) {
     ev.preventDefault()
+    const pwErrs = validatePasswordStrength(createForm.password)
+    if (pwErrs.length) {
+      notify(pwErrs.join(' '))
+      return
+    }
     try {
       await postAdminUserCreate(token, {
         email: createForm.email.trim(),
@@ -3683,9 +4633,15 @@ export function AdminUsersPanel({ t, notify }) {
               autoComplete="off"
             />
           </label>
-          <button type="button" className="admin-filter-btn" onClick={() => notify(t('admin.filtersApplied'))}>
+          <button
+            type="button"
+            className="admin-filter-btn"
+            onClick={async () => {
+              if (await reload()) notify(t('admin.refreshOk'))
+            }}
+          >
             <SlidersHorizontal size={17} strokeWidth={2} aria-hidden />
-            {t('admin.filters')}
+            {t('admin.refreshBtn')}
           </button>
         </div>
       </div>
@@ -3869,7 +4825,7 @@ export function AdminUsersPanel({ t, notify }) {
                 <input
                   type="password"
                   required
-                  minLength={8}
+                  minLength={10}
                   value={createForm.password}
                   onChange={(ev) => setCreateForm((f) => ({ ...f, password: ev.target.value }))}
                   autoComplete="new-password"
@@ -3945,18 +4901,10 @@ function cmsRowMatchesTab(item, tabId) {
   return true
 }
 
-const CMS_DEMO_SEED = [
-  { id: 'demo-1', kind: 'Lección', title: 'Saludos básicos', category: 'Saludos', _status: 'published' },
-  { id: 'demo-2', kind: 'Vocabulario', title: 'Vocabulario de la familia', category: 'Familia', _status: 'published' },
-  { id: 'demo-3', kind: 'Lección', title: 'Números en Nasa Yuwe', category: 'Números', _status: 'draft' },
-  { id: 'demo-4', kind: 'Diálogo', title: 'Conversación en clase', category: 'Aula', _status: 'published' },
-  { id: 'demo-5', kind: 'Cultura', title: 'Territorio y memoria', category: 'Cultura', _status: 'published' },
-]
-
 export function AdminContentPanel({ t, notify }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
   const [data, setData] = useState({ cms_items: [], categories: [] })
-  const [form, setForm] = useState({ id: '', kind: 'termino', title: '', body: '' })
+  const [form, setForm] = useState({ id: '', kind: 'termino', title: '', body: '', status: 'published' })
   const [submissions, setSubmissions] = useState([])
   const [contentTab, setContentTab] = useState('all')
   const [contentSearch, setContentSearch] = useState('')
@@ -3979,8 +4927,10 @@ export function AdminContentPanel({ t, notify }) {
       const [d, s] = await Promise.all([getAdminCms(token), getAdminContentSubmissions(token)])
       setData(d)
       setSubmissions(s.items || [])
+      return true
     } catch {
       notify(t('admin.loadErr'))
+      return false
     }
   }
 
@@ -3990,10 +4940,9 @@ export function AdminContentPanel({ t, notify }) {
 
   const displayCms = useMemo(() => {
     const fromApi = data.cms_items || []
-    const base = fromApi.length ? fromApi : CMS_DEMO_SEED
-    return base.map((it) => ({
+    return fromApi.map((it) => ({
       ...it,
-      _isDraft: it._status === 'draft' || it.status === 'draft' || it.status === 'borrador',
+      _isDraft: String(it.status || '').toLowerCase() === 'draft',
     }))
   }, [data.cms_items])
 
@@ -4026,12 +4975,13 @@ export function AdminContentPanel({ t, notify }) {
         kind: form.kind.trim(),
         title: form.title.trim(),
         body: form.body.trim(),
+        status: form.status,
       }
       if (payload.id) payload.id = Number(payload.id)
       else delete payload.id
       await postAuthorized('/api/admin/cms-save', token, payload)
       notify(t('admin.cmsSaved'))
-      setForm({ id: '', kind: 'termino', title: '', body: '' })
+      setForm({ id: '', kind: 'termino', title: '', body: '', status: 'published' })
       reload()
     } catch {
       notify(t('admin.cmsSaveErr'))
@@ -4050,7 +5000,7 @@ export function AdminContentPanel({ t, notify }) {
 
   async function reviewSubmission(id, action) {
     try {
-      await reviewAdminContentSubmission(token, { id, action })
+      await reviewAdminContentSubmission(token, { id, action, review_notes: '' })
       reload()
       notify(action === 'approve' ? t('admin.reviewApproved') : t('admin.reviewRejected'))
     } catch (e) {
@@ -4100,9 +5050,15 @@ export function AdminContentPanel({ t, notify }) {
               autoComplete="off"
             />
           </label>
-          <button type="button" className="admin-filter-btn" onClick={() => notify(t('admin.filtersApplied'))}>
+          <button
+            type="button"
+            className="admin-filter-btn"
+            onClick={async () => {
+              if (await reload()) notify(t('admin.refreshOk'))
+            }}
+          >
             <Filter size={17} strokeWidth={2} aria-hidden />
-            {t('admin.filters')}
+            {t('admin.refreshBtn')}
           </button>
         </div>
       </div>
@@ -4120,9 +5076,14 @@ export function AdminContentPanel({ t, notify }) {
             </tr>
           </thead>
           <tbody>
-            {filteredCms.map((it) => {
-              const isDemo = String(it.id).startsWith('demo-')
-              return (
+            {filteredCms.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="admin-cell-muted">
+                  {t('admin.cmsEmpty')}
+                </td>
+              </tr>
+            ) : (
+              filteredCms.map((it) => (
                 <tr key={it.id}>
                   <td>
                     <strong>{it.title}</strong>
@@ -4157,10 +5118,11 @@ export function AdminContentPanel({ t, notify }) {
                         aria-label={t('admin.edit')}
                         onClick={() =>
                           setForm({
-                            id: isDemo ? '' : String(it.id),
+                            id: String(it.id),
                             kind: it.kind || 'termino',
                             title: it.title || '',
                             body: it.body || '',
+                            status: it._isDraft ? 'draft' : 'published',
                           })
                         }
                       >
@@ -4170,8 +5132,7 @@ export function AdminContentPanel({ t, notify }) {
                         type="button"
                         className="admin-icon-btn"
                         aria-label={t('admin.delete')}
-                        disabled={isDemo}
-                        onClick={() => !isDemo && deleteItem(it.id)}
+                        onClick={() => deleteItem(it.id)}
                       >
                         <Trash2 size={17} strokeWidth={2} />
                       </button>
@@ -4191,8 +5152,8 @@ export function AdminContentPanel({ t, notify }) {
                     </div>
                   </td>
                 </tr>
-              )
-            })}
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -4209,11 +5170,22 @@ export function AdminContentPanel({ t, notify }) {
           onChange={(ev) => setForm({ ...form, body: ev.target.value })}
           rows={4}
         />
+        <label className="admin-field-block">
+          <span>{t('admin.cmsFormStatus')}</span>
+          <select value={form.status} onChange={(ev) => setForm({ ...form, status: ev.target.value })}>
+            <option value="published">{t('admin.statusPublished')}</option>
+            <option value="draft">{t('admin.statusDraft')}</option>
+          </select>
+        </label>
         <div className="cms-form-actions">
           <button type="button" onClick={save}>
             {t('admin.cmsSave')}
           </button>
-          <button type="button" className="secondary-b" onClick={() => setForm({ id: '', kind: 'termino', title: '', body: '' })}>
+          <button
+            type="button"
+            className="secondary-b"
+            onClick={() => setForm({ id: '', kind: 'termino', title: '', body: '', status: 'published' })}
+          >
             {t('admin.cmsClear')}
           </button>
         </div>
@@ -4268,10 +5240,48 @@ export function AdminContentPanel({ t, notify }) {
 export function AdminStatsPanel({ t }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
   const [dash, setDash] = useState(null)
+  const [dashLoading, setDashLoading] = useState(true)
+  const [dashErr, setDashErr] = useState(false)
 
   useEffect(() => {
-    getAdminStatsDash(token).then(setDash).catch(() => {})
+    let cancelled = false
+    setDashLoading(true)
+    setDashErr(false)
+    getAdminStatsDash(token)
+      .then((d) => {
+        if (!cancelled) {
+          setDash(d)
+          setDashLoading(false)
+          setDashErr(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDash(null)
+          setDashLoading(false)
+          setDashErr(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
   }, [token])
+
+  if (dashLoading) {
+    return (
+      <div className="page-shell adm-shell stats-dash">
+        <p className="adm-empty-msg">{t('admin.statsLoading')}</p>
+      </div>
+    )
+  }
+
+  if (dashErr) {
+    return (
+      <div className="page-shell adm-shell stats-dash">
+        <p className="adm-empty-msg">{t('admin.statsLoadErr')}</p>
+      </div>
+    )
+  }
 
   if (dash?.empty) {
     return (
@@ -4281,15 +5291,15 @@ export function AdminStatsPanel({ t }) {
     )
   }
 
-  const p = dash?.platform || {
-    usuarios_registrados: 156,
-    estudiantes: 132,
-    docentes: 24,
-    administradores: 2,
-    cuentas_activas: 148,
+  const p = dash?.platform ?? {
+    usuarios_registrados: 0,
+    estudiantes: 0,
+    docentes: 0,
+    administradores: 0,
+    cuentas_activas: 0,
   }
-  const c = dash?.corpus || { entradas: 1248, categorias: 42 }
-  const exportPayload = dash || { platform: p, corpus: c, generated: 'demo-fallback' }
+  const c = dash?.corpus ?? { entradas: 0, categorias: 0 }
+  const exportPayload = dash ?? { platform: p, corpus: c }
 
   return (
     <div className="page-shell adm-shell stats-dash admin-reportes">
@@ -4343,7 +5353,7 @@ export function AdminStatsPanel({ t }) {
           <div className="role-panel-head">
             <h3>{t('admin.statsChartTitle')}</h3>
           </div>
-          <AdminPlatformLineChart t={t} />
+          <AdminPlatformLineChart t={t} usageSeries={dash?.usage_series} />
         </section>
         <section className="role-panel admin-corpus-card">
           <div className="role-panel-head">
