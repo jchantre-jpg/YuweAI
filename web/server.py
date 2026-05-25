@@ -537,6 +537,89 @@ def _looks_like_meta_spanish_gloss(es: str) -> bool:
     return "como se dice" in n or n.startswith("traduce ") or "traduccion" in n
 
 
+def _is_asking_how(query_norm: str) -> bool:
+    return bool(
+        re.search(r"\bcomo\s+(digo|se\s+dice|saludo|pregunto|me\s+despido)\b", query_norm)
+        or "traduce" in query_norm
+        or "traduccion" in query_norm
+        or query_norm.startswith("que significa")
+    )
+
+
+def _is_thanking_avi(query_norm: str, q_tokens: list[str]) -> bool:
+    """Gracias al AVI, no 'como digo gracias'."""
+    if _is_asking_how(query_norm):
+        return False
+    ts = set(q_tokens)
+    if "gracias" not in query_norm and "agradec" not in query_norm:
+        return False
+    if {"como", "digo", "dice", "decir", "traduce", "traduccion", "significa"} & ts:
+        return False
+    return True
+
+
+def _extract_lexical_target(query_norm: str) -> str | None:
+    for pat in (
+        r"como\s+digo\s+(.+?)(?:\s+en\s+nasa|\?|$)",
+        r"como\s+se\s+dice\s+(.+?)\s+en\s+nasa",
+        r"traduce\s+(.+?)\s+a\s+nasa",
+    ):
+        m = re.search(pat, query_norm)
+        if m:
+            t = normalize_text(m.group(1).strip(" ?."))
+            if t and t not in ("esta frase", "esta palabra"):
+                return t
+    if re.search(r"\bcomo\s+saludo\b", query_norm) or query_norm in ("saludo", "saludos"):
+        return "saludo"
+    return None
+
+
+def _detect_chat_topic(query_norm: str, q_tokens: list[str]) -> str | None:
+    ts = set(q_tokens)
+    if "familia" in query_norm or "parentesco" in query_norm:
+        return "familia"
+    if "despid" in query_norm or "desped" in query_norm or query_norm in ("despedidas", "despedida"):
+        return "despedida"
+    if ("saludo" in query_norm or re.search(r"\bcomo\s+saludo\b", query_norm)) and (
+        _is_asking_how(query_norm) or {"como", "cual", "dime", "ensena", "explica"} & ts
+    ):
+        return "saludos"
+    if "gracias" in query_norm and _is_asking_how(query_norm):
+        return "gracias"
+    return None
+
+
+def _contexts_lexico_lines(contexts: list[dict], limit: int = 5, *, prefer_gloss: str = "") -> list[str]:
+    prefer = normalize_text(prefer_gloss) if prefer_gloss else ""
+    ordered = list(contexts)
+    if prefer:
+
+        def rank(ctx: dict) -> tuple[int, str]:
+            es = normalize_text(ctx.get("espanol") or "")
+            hit = 0 if prefer in es else 1
+            return (hit, es)
+
+        ordered = sorted(ordered, key=rank)
+
+    lines = []
+    seen = set()
+    for ctx in ordered:
+        if (ctx.get("record_type") or "").strip().lower() != "lexico":
+            continue
+        ny = (ctx.get("nasa_yuwe") or "").strip()
+        es = (ctx.get("espanol") or "").strip()
+        if not ny or _looks_like_meta_spanish_gloss(es):
+            continue
+        key = (ny, es)
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"• {ny} — {es}")
+        if len(lines) >= limit:
+            break
+    return lines
+
+
 def compose_avi_chat_answer(
     query_norm: str,
     q_tokens: list[str],
@@ -570,16 +653,57 @@ def compose_avi_chat_answer(
             else "Te sugiero nombrar un tema concreto (familia, saludo, numeros, colores) o una sola palabra que quieras aprender."
         )
 
+    topic = _detect_chat_topic(query_norm, q_tokens)
+
+    if topic == "saludos":
+        lines = _contexts_lexico_lines(contexts, 6, prefer_gloss="saludo basico")
+        if lines:
+            return (
+                "Para saludar en Nasa Yuwe, estas formas aparecen en el material del curso:\n\n"
+                + "\n".join(lines)
+                + "\n\n"
+                "Consejo: Ma'g suele usarse hacia una persona considerada hombre; Ma'w hacia mujer. "
+                "Elige una sola frase, repítela en voz alta tres veces y luego úsala en una mini presentación."
+            )
+
+    if topic == "gracias":
+        lines = _contexts_lexico_lines(contexts, 4)
+        lead = lines[0] if lines else "Nasa Yuwe: wecha- / wecháa- — 1. estar agradecido, agradecer"
+        extra = ("\n\nOtras formas relacionadas:\n" + "\n".join(lines[1:])) if len(lines) > 1 else ""
+        return (
+            "Para agradecer o decir gracias, en el corpus aparece sobre todo el verbo de agradecimiento:\n\n"
+            f"{lead}{extra}\n\n"
+            "Puedes usarlo en contexto formal con calma. Si me dices si es para un adulto, un par o en clase, "
+            "te sugiero una frase corta completa."
+        )
+
+    if topic == "despedida":
+        lines = _contexts_lexico_lines(contexts, 4)
+        body = "\n".join(lines) if lines else "• wecha- / wecháa- — saludar, despedir, besar (verbo del curso)"
+        return (
+            "Para despedirte, en el material del curso conviene apoyarte en verbos de saludo/despedida:\n\n"
+            f"{body}\n\n"
+            "Practica una despedida corta (por ejemplo, saludo + nombre + deseo de buen día). "
+            "Si quieres, escríbeme tu despedida en español y te ayudo a pasarla a Nasa Yuwe."
+        )
+
+    if topic == "familia":
+        lines = _contexts_lexico_lines(contexts, 5)
+        core = lines[0] if lines else pair_block()
+        more = ("\n\nTambién relacionado:\n" + "\n".join(lines[1:])) if len(lines) > 1 else ""
+        return (
+            "Qué bonito tema. Para hablar de familia, una palabra central en el corpus es:\n\n"
+            f"{core}{more}\n\n"
+            "Puedes armar frases sencillas: mi familia, en mi casa, con mi mamá/papá… "
+            "Dime quién quieres mencionar (mamá, papá, hermano, abuela) y buscamos la forma en Nasa Yuwe."
+        )
+
     wants_hi = (
         query_norm.strip() in ("hola", "buenas", "hey", "ei")
         or any(p in query_norm for p in ("buenos dias", "buenas tardes", "buenas noches", "buen dia", "buena tarde"))
         or ("hola" in ts and len(ts) <= 4)
-        or (
-            "saludo" in query_norm
-            and bool({"como", "cual", "dime", "ensena", "explica", "ayuda", "quiero", "necesito"} & ts)
-        )
     )
-    wants_thanks = "gracias" in query_norm or "agradec" in query_norm or "mil gracias" in query_norm
+    wants_thanks = _is_thanking_avi(query_norm, q_tokens)
     wants_bye = any(
         p in query_norm for p in ("adios", "hasta luego", "nos vemos", "chao", "chau", "hasta pronto", "me voy")
     )
@@ -763,6 +887,51 @@ class CorpusEngine:
             ids |= self.inv_index.get(t, set())
         return ids
 
+    def _topic_doc_indices(self, topic: str) -> list[int]:
+        """Refuerza recuperacion para chips frecuentes (saludo, familia, gracias, despedida)."""
+        out: list[int] = []
+        seen: set[int] = set()
+
+        def add(i: int) -> None:
+            if i not in seen:
+                seen.add(i)
+                out.append(i)
+
+        if topic == "saludos":
+            for i in self._doc_ids_for_category("saludos"):
+                row = self.rows[i]
+                if row.get("record_type") == "lexico" and not _looks_like_meta_spanish_gloss(row.get("espanol", "")):
+                    add(i)
+            for i, row in enumerate(self.rows):
+                if row.get("record_type") == "lexico" and "hola" in (row.get("espanol_norm") or ""):
+                    add(i)
+        elif topic == "familia":
+            for i, row in enumerate(self.rows):
+                esn = row.get("espanol_norm") or ""
+                if "familia" in esn and row.get("record_type") == "lexico":
+                    add(i)
+        elif topic == "gracias":
+            for i, row in enumerate(self.rows):
+                esn = row.get("espanol_norm") or ""
+                if row.get("record_type") == "lexico" and (
+                    "agradec" in esn or "gracias" in esn or "agradecer" in esn
+                ):
+                    add(i)
+        elif topic == "despedida":
+            for i, row in enumerate(self.rows):
+                esn = row.get("espanol_norm") or ""
+                if row.get("record_type") != "lexico":
+                    continue
+                if "despedaz" in esn or "pedaz" in esn or "llamas" in esn:
+                    continue
+                if "despedir" in esn or "despedida" in esn:
+                    add(i)
+            for i in self._doc_ids_for_category("saludos"):
+                row = self.rows[i]
+                if row.get("record_type") == "lexico":
+                    add(i)
+        return out[:16]
+
     def _score(self, q_tokens, doc_id, pedagogical_intent=False):
         d_tokens = self.doc_tokens[doc_id]
         row = self.rows[doc_id]
@@ -828,7 +997,9 @@ class CorpusEngine:
             return cached
 
         q_tokens = tokenize(query_norm)
-        translation_intent = (
+        asking_how = _is_asking_how(query_norm)
+        chat_topic = _detect_chat_topic(query_norm, q_tokens)
+        translation_intent = asking_how or (
             ("dice" in q_tokens)
             or ("traduce" in q_tokens)
             or ("traduccion" in q_tokens)
@@ -851,17 +1022,36 @@ class CorpusEngine:
         )
 
         cand = self._candidates(q_tokens)
+        if chat_topic:
+            for i in self._topic_doc_indices(chat_topic):
+                cand.add(i)
 
         # direct lexical optimization for "como se dice X en nasa yuwe"
-        direct_target = None
-        m = re.search(r"dice (.+?) en nasa yuwe", query_norm)
-        if m:
-            direct_target = normalize_text(m.group(1))
+        direct_target = _extract_lexical_target(query_norm)
+        if not direct_target:
+            m = re.search(r"dice (.+?) en nasa yuwe", query_norm)
+            if m:
+                direct_target = normalize_text(m.group(1))
         if not direct_target:
             m2 = re.search(r"traduce (.+?) a nasa yuwe", query_norm)
             if m2:
                 direct_target = normalize_text(m2.group(1))
+        if not cand and chat_topic:
+            for i in self._topic_doc_indices(chat_topic):
+                cand.add(i)
         if not cand:
+            if _is_thanking_avi(query_norm, q_tokens):
+                data = {
+                    "answer": (
+                        "De nada, con gusto.\n\n"
+                        "Me alegra acompañarte. Cuando quieras, seguimos con otra palabra o tema "
+                        "(saludos, familia, numeros, colores…)."
+                    ),
+                    "contexts": [],
+                    "meta": {"cache_hit": False, "candidates": 0, "thanks_only": True},
+                }
+                self.cache[query_norm] = {"time": time.time(), "data": data}
+                return data
             data = {
                 "answer": (
                     "Todavia no tengo una pista clara con las palabras que usaste. "
@@ -877,8 +1067,13 @@ class CorpusEngine:
         scored = []
         for doc_id in cand:
             row_doc = self.rows[doc_id]
-            if translation_intent and row_doc.get("record_type", "").strip().lower() in {"qa", "dialogo"}:
+            rt = row_doc.get("record_type", "").strip().lower()
+            if translation_intent and rt in {"qa", "dialogo"}:
                 # avoid generated conversational records when user asks direct lexical translation
+                continue
+            if chat_topic == "saludos" and rt in {"qa", "dialogo"}:
+                continue
+            if chat_topic in {"gracias", "familia", "despedida"} and rt == "qa":
                 continue
             if direct_target and row_doc.get("record_type", "").strip().lower() == "lexico":
                 # boost direct match in spanish gloss
@@ -886,8 +1081,19 @@ class CorpusEngine:
                     scored.append((doc_id, 999.0))
                     continue
             sc = self._score(q_tokens, doc_id, pedagogical_intent=pedagogical_intent)
+            if chat_topic == "saludos" and rt == "lexico":
+                sc *= 1.35
+            if chat_topic == "familia" and "familia" in (row_doc.get("espanol_norm") or ""):
+                sc *= 1.5
+            if chat_topic == "gracias" and "agradec" in (row_doc.get("espanol_norm") or ""):
+                sc *= 1.45
+            if chat_topic == "despedida" and "despedir" in (row_doc.get("espanol_norm") or ""):
+                sc *= 1.4
             if sc > 0:
                 scored.append((doc_id, sc))
+        if not scored and chat_topic:
+            for i in self._topic_doc_indices(chat_topic)[: max(top_k, 5)]:
+                scored.append((i, 1.0))
         scored.sort(key=lambda x: x[1], reverse=True)
         mmr_selected = self._mmr(scored, top_k=top_k, lambda_param=0.75)
 

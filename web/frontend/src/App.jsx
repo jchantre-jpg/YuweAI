@@ -302,6 +302,7 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [homeComposerText, setHomeComposerText] = useState('')
   const [chatContexts, setChatContexts] = useState([])
+  const [chatBusy, setChatBusy] = useState(false)
   const [dictionaryPreferredTab, setDictionaryPreferredTab] = useState(null)
   /** Arranque desde Aprender: abre Practicar y dispara ejercicios del corpus (una vez por _bootKey). */
   const [practiceFromLearn, setPracticeFromLearn] = useState(null)
@@ -753,12 +754,37 @@ export default function App() {
     window.history.replaceState(null, '', `#${canon}`)
   }, [])
 
+  const sendChatMessage = useCallback(async (text) => {
+    const clean = String(text || '').trim()
+    if (!clean) return
+    setChatBusy(true)
+    const at = chatTimeNow()
+    setMessages((m) => [...m, { role: 'user', text: clean, at }])
+    setQuery('')
+    try {
+      const data = await searchAVI(clean, 5)
+      setChatContexts(Array.isArray(data.contexts) ? data.contexts : [])
+      setMessages((m) => [
+        ...m,
+        { role: 'avi', text: data.answer || '…', audio: true, at: chatTimeNow() },
+      ])
+    } catch (e) {
+      setChatContexts([])
+      setMessages((m) => [
+        ...m,
+        { role: 'avi', text: String(e?.message || e), audio: true, at: chatTimeNow() },
+      ])
+    } finally {
+      setChatBusy(false)
+    }
+  }, [])
+
   const goChatWith = useCallback(
     (text) => {
-      setQuery(text)
       navigateTo('conversar')
+      void sendChatMessage(text)
     },
-    [navigateTo],
+    [navigateTo, sendChatMessage],
   )
 
   const submitHomeComposer = useCallback(
@@ -766,11 +792,11 @@ export default function App() {
       ev.preventDefault()
       const text = homeComposerText.trim()
       if (!text) return
-      setQuery(text)
       setHomeComposerText('')
       navigateTo('conversar')
+      void sendChatMessage(text)
     },
-    [homeComposerText, navigateTo],
+    [homeComposerText, navigateTo, sendChatMessage],
   )
 
   async function submitLogin(ev) {
@@ -823,8 +849,8 @@ export default function App() {
         role: regRole,
       })
       if (payload.token) {
-        applySession(payload)
-        notify(payload.message || 'Cuenta creada.')
+      applySession(payload)
+      notify(payload.message || 'Cuenta creada.')
       } else {
         notify(payload.message || 'Cuenta registrada. Ahora inicia sesión con tu correo y contraseña.')
         setAuthTab('login')
@@ -894,22 +920,7 @@ export default function App() {
 
   async function askChat(ev) {
     ev.preventDefault()
-    const clean = query.trim()
-    if (!clean) return
-    const at = chatTimeNow()
-    setMessages((m) => [...m, { role: 'user', text: clean, at }])
-    setQuery('')
-    try {
-      const data = await searchAVI(clean, 5)
-      setChatContexts(Array.isArray(data.contexts) ? data.contexts : [])
-      setMessages((m) => [
-        ...m,
-        { role: 'avi', text: data.answer || '…', audio: true, at: chatTimeNow() },
-      ])
-    } catch (e) {
-      setChatContexts([])
-      setMessages((m) => [...m, { role: 'avi', text: String(e?.message || e), audio: true }])
-    }
+    await sendChatMessage(query)
   }
 
   const resetChatConversation = useCallback(() => {
@@ -1028,60 +1039,60 @@ export default function App() {
                   </>
                 ) : (
                   <>
-                    <div className="login-tabs">
-                      <button
-                        type="button"
-                        className={`login-tab${authTab === 'login' ? ' active' : ''}`}
+                <div className="login-tabs">
+                  <button
+                    type="button"
+                    className={`login-tab${authTab === 'login' ? ' active' : ''}`}
                         onClick={() => {
                           setAuthTab('login')
                           setRecoverStep(0)
                         }}
-                      >
+                  >
                         {t('login.tabLogin')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`login-tab${authTab === 'create' ? ' active' : ''}`}
+                  </button>
+                  <button
+                    type="button"
+                    className={`login-tab${authTab === 'create' ? ' active' : ''}`}
                         onClick={() => {
                           setAuthTab('create')
                           setRecoverStep(0)
                         }}
-                      >
+                  >
                         {t('login.tabRegister')}
-                      </button>
-                    </div>
-                    <div className="login-diamonds" aria-hidden>
-                      <span />
-                      <span />
-                      <span />
-                    </div>
-                    {authTab === 'login' ? (
-                      <>
+                  </button>
+                </div>
+                <div className="login-diamonds" aria-hidden>
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                {authTab === 'login' ? (
+                  <>
                         <h2 className="login-title">{t('login.title')}</h2>
                         <p className="login-sub">{t('login.subtitle')}</p>
-                        <form className="login-form" onSubmit={submitLogin}>
-                          <div className="field">
-                            <label htmlFor="login-email">{t('login.email')}</label>
-                            <div className="input-icon-wrap">
-                              <User size={18} />
-                              <input
-                                id="login-email"
-                                name="email"
-                                type="email"
-                                placeholder="correo@ejemplo.com"
-                                defaultValue={profile.email}
-                                onBlur={(e) => setProfile((p) => ({ ...p, email: e.target.value }))}
-                                required
-                              />
-                            </div>
-                          </div>
-                          <div className="field">
-                            <label htmlFor="login-pass">{t('login.password')}</label>
-                            <div className="input-icon-wrap">
-                              <Sparkles size={18} />
+                    <form className="login-form" onSubmit={submitLogin}>
+                      <div className="field">
+                        <label htmlFor="login-email">{t('login.email')}</label>
+                        <div className="input-icon-wrap">
+                          <User size={18} />
+                          <input
+                            id="login-email"
+                            name="email"
+                            type="email"
+                            placeholder="correo@ejemplo.com"
+                            defaultValue={profile.email}
+                            onBlur={(e) => setProfile((p) => ({ ...p, email: e.target.value }))}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="login-pass">{t('login.password')}</label>
+                        <div className="input-icon-wrap">
+                          <Sparkles size={18} />
                               <input id="login-pass" name="password" type="password" minLength={10} required autoComplete="current-password" />
-                            </div>
-                          </div>
+                        </div>
+                      </div>
                           <div className="login-recover-row">
                             <button
                               type="button"
@@ -1094,56 +1105,56 @@ export default function App() {
                               {t('login.recoverPassword')}
                             </button>
                           </div>
-                          <button type="submit" className="login-submit">
-                            {t('login.submit')}
-                          </button>
-                        </form>
-                      </>
-                    ) : (
-                      <>
+                      <button type="submit" className="login-submit">
+                        {t('login.submit')}
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <>
                         <h2 className="login-title">{t('login.tabRegister')}</h2>
                         <p className="login-sub">{t('login.subtitle')}</p>
-                        <form className="login-form" onSubmit={submitRegister}>
-                          <div className="field">
-                            <label htmlFor="reg-name">{t('login.name')}</label>
-                            <div className="input-icon-wrap">
-                              <User size={18} />
-                              <input id="reg-name" name="display_name" type="text" minLength={2} required />
-                            </div>
-                          </div>
-                          <div className="field">
-                            <label htmlFor="reg-email">{t('login.email')}</label>
-                            <div className="input-icon-wrap">
-                              <User size={18} />
+                    <form className="login-form" onSubmit={submitRegister}>
+                      <div className="field">
+                        <label htmlFor="reg-name">{t('login.name')}</label>
+                        <div className="input-icon-wrap">
+                          <User size={18} />
+                          <input id="reg-name" name="display_name" type="text" minLength={2} required />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-email">{t('login.email')}</label>
+                        <div className="input-icon-wrap">
+                          <User size={18} />
                               <input id="reg-email" name="email" type="email" required autoComplete="email" />
-                            </div>
-                          </div>
-                          <div className="field">
-                            <label htmlFor="reg-role">Rol</label>
-                            <select id="reg-role" value={regRole} onChange={(e) => setRegRole(e.target.value)}>
-                              <option value="estudiante">Estudiante</option>
-                              <option value="docente">Docente</option>
-                            </select>
-                          </div>
-                          <div className="field">
-                            <label htmlFor="reg-pass">{t('login.password')}</label>
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-role">Rol</label>
+                        <select id="reg-role" value={regRole} onChange={(e) => setRegRole(e.target.value)}>
+                          <option value="estudiante">Estudiante</option>
+                          <option value="docente">Docente</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-pass">{t('login.password')}</label>
                             <div className="input-icon-wrap">
                               <Sparkles size={18} />
                               <input id="reg-pass" name="password" type="password" minLength={10} required autoComplete="new-password" />
                             </div>
-                          </div>
-                          <div className="field">
-                            <label htmlFor="reg-pass2">Confirmar contraseña</label>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-pass2">Confirmar contraseña</label>
                             <div className="input-icon-wrap">
                               <Sparkles size={18} />
                               <input id="reg-pass2" name="password_confirm" type="password" minLength={10} required autoComplete="new-password" />
-                            </div>
+                      </div>
                           </div>
                           <p className="login-policy-hint">{PASSWORD_POLICY_HINT}</p>
-                          <button type="submit" className="login-submit">
-                            Registrarme
-                          </button>
-                        </form>
+                      <button type="submit" className="login-submit">
+                        Registrarme
+                      </button>
+                    </form>
                       </>
                     )}
                   </>
@@ -1200,7 +1211,7 @@ export default function App() {
               <item.icon size={20} />
               <span>
                 <strong>{t(item.labelKey)}</strong>
-                <small>{t(item.hintKey)}</small>
+                {t(item.hintKey).trim() ? <small>{t(item.hintKey)}</small> : null}
               </span>
             </button>
           ))}
@@ -1390,10 +1401,6 @@ export default function App() {
                 <div className="home-hero-copy home-hero-copy--mockup">
                   <h2>{t('home.title')}</h2>
                   <p className="home-hero-lead">{t('home.lead')}</p>
-                  <div className="home-speech home-speech--mockup">
-                    <strong>{t('home.speechStrong')}</strong>
-                    <span>{t('home.speechSpan')}</span>
-                  </div>
                 </div>
               </section>
 
@@ -1404,28 +1411,24 @@ export default function App() {
                     <BookOpen size={22} />
                   </span>
                   <span>{t('home.actionLearn')}</span>
-                  {t('learn.pageSub').trim() ? <small>{t('learn.pageSub')}</small> : null}
                 </button>
                 <button type="button" className="action-tile action-tile--practice" onClick={() => navigateTo('practicar')}>
                   <span className="action-tile-icon action-tile-icon--practice">
                     <MessageCircle size={22} strokeWidth={2.2} />
                   </span>
                   <span>{t('home.actionPractice')}</span>
-                  {t('navHint.practicar').trim() ? <small>{t('navHint.practicar')}</small> : null}
                 </button>
                 <button type="button" className="action-tile action-tile--listen" onClick={() => navigateTo('diccionario')}>
                   <span className="action-tile-icon action-tile-icon--listen">
                     <Waves size={22} />
                   </span>
                   <span>{t('home.actionListen')}</span>
-                  {t('home.actionListenHint').trim() ? <small>{t('home.actionListenHint')}</small> : null}
                 </button>
                 <button type="button" className="action-tile action-tile--explore" onClick={() => navigateTo('diccionario')}>
                   <span className="action-tile-icon action-tile-icon--explore">
                     <Type size={22} strokeWidth={2.2} />
                   </span>
                   <span>{t('home.actionCorpus')}</span>
-                  {t('home.actionCorpusHint').trim() ? <small>{t('home.actionCorpusHint')}</small> : null}
                 </button>
               </div>
 
@@ -1606,7 +1609,12 @@ export default function App() {
                   </div>
                   <div className="chat-quick chat-mock-quick">
                     {CHAT_QUICK_KEYS.map((qk) => (
-                      <button key={qk} type="button" onClick={() => setQuery(t(qk))}>
+                      <button
+                        key={qk}
+                        type="button"
+                        disabled={chatBusy}
+                        onClick={() => void sendChatMessage(t(qk))}
+                      >
                         {t(qk)}
                       </button>
                     ))}
@@ -1631,7 +1639,7 @@ export default function App() {
                     placeholder={t('chat.placeholder')}
                     aria-label={t('chat.placeholder')}
                   />
-                  <button type="submit" className="send" aria-label={t('home.send')}>
+                  <button type="submit" className="send" disabled={chatBusy} aria-label={t('home.send')}>
                     <Send size={20} aria-hidden />
                   </button>
                 </form>
