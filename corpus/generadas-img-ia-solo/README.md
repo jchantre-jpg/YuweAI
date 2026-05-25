@@ -18,6 +18,29 @@ python scripts/export_term_image_map.py
 
 **Despliegue:** sube al servidor la carpeta completa `corpus/generadas-img-ia-solo/` (PNG + `term_image_routes.json`) junto al codigo. Opcional: variable de entorno `AVI_SOLO_IMG_DIR` apuntando a esa carpeta si no esta dentro del repo en el host.
 
+### Render (PNG fuera de Git)
+
+Los PNG suelen estar en `.gitignore`; el build en la nube no los ve. Opcion recomendada: **archivo `.tar.gz` + variable `SOLO_IMG_TARBALL_URL`**.
+
+1. Desde la raiz del repo `YuweAI` (donde estan `corpus/` y `web/`), con la carpeta local completa (incluye PNG):
+
+   ```bash
+   tar -czvf solo-img-ia.tar.gz -C corpus generadas-img-ia-solo
+   ```
+
+2. Sube `solo-img-ia.tar.gz` a un almacen con **URL de descarga directa** (por ejemplo bucket S3/R2 publico, release en GitHub con asset, Hugging Face con enlace raw que acepte `curl`).
+
+3. En [Render](https://dashboard.render.com) → tu servicio **yuweai-avi-api** → **Environment** → añade:
+
+   - **Key:** `SOLO_IMG_TARBALL_URL`
+   - **Value:** la URL HTTPS del `.tar.gz`
+
+   Render inyecta las variables del servicio como **Docker ARG** durante el build: el `Dockerfile` descarga el tarball y lo descomprime sobre `/app/corpus/generadas-img-ia-solo/` antes de arrancar.
+
+4. Vuelve a desplegar (**Manual Deploy** o push a la rama conectada). El build fallara con un mensaje claro si la URL no devuelve un gzip valido o si dentro del archivo no hay ningun `.png` (revisa que el `tar` se creo con `-C corpus generadas-img-ia-solo` para que las rutas relativas coincidan).
+
+Si no defines `SOLO_IMG_TARBALL_URL`, la imagen solo lleva lo que venga en Git (metadatos sin PNG) y la app seguira usando Wikimedia donde no haya archivo local.
+
 El cliente React pasa `id` del termino en `/api/image` para desambiguar gloss duplicados.
 
 ## Convención de export desde Cursor (assets)

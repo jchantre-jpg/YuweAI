@@ -15,6 +15,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app/web
 
 COPY YuweAI/web/server.py ./
@@ -25,6 +28,19 @@ COPY --from=frontend /build/dist ./frontend/dist/
 RUN mkdir -p /app/corpus/data /app/corpus/generadas-img-ia-solo /app/web/data
 COPY corpus/data/corpus_bilingue_v5.csv /app/corpus/data/
 COPY YuweAI/corpus/generadas-img-ia-solo/ /app/corpus/generadas-img-ia-solo/
+
+# Misma convencion que Dockerfile en la raiz del repo YuweAI (tar -czvf ... -C corpus generadas-img-ia-solo).
+ARG SOLO_IMG_TARBALL_URL=
+RUN set -eux; \
+    if [ -n "$SOLO_IMG_TARBALL_URL" ]; then \
+      echo "Downloading SOLO_IMG_TARBALL_URL ..."; \
+      curl -fSL "$SOLO_IMG_TARBALL_URL" -o /tmp/solo_img_ia.tar.gz; \
+      tar -xzf /tmp/solo_img_ia.tar.gz -C /app/corpus/generadas-img-ia-solo/; \
+      rm -f /tmp/solo_img_ia.tar.gz; \
+      python3 -c "import pathlib; p=pathlib.Path('/app/corpus/generadas-img-ia-solo'); n=sum(1 for _ in p.rglob('*.png')); print('solo PNG count:', n); assert n >= 1, 'SOLO_IMG_TARBALL_URL: no se encontro ningun PNG'"; \
+    else \
+      echo "SOLO_IMG_TARBALL_URL unset; generadas-img-ia-solo solo desde el contexto de build."; \
+    fi
 
 ENV AVI_CORPUS_PATH=/app/corpus/data/corpus_bilingue_v5.csv
 

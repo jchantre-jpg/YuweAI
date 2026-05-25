@@ -22,6 +22,11 @@ services:
         value: https://yuwe-ai.web.app,https://yuwe-ai.firebaseapp.com
       - key: AVI_SKIP_DEMO_USERS
         value: "1"
+      # Build + runtime: URL directa a .tar.gz con corpus/generadas-img-ia-solo (PNG + JSON).
+      # Crear: tar -czvf solo-img-ia.tar.gz -C corpus generadas-img-ia-solo  (desde raiz YuweAI)
+      # Subir a almacen con enlace directo (S3, HF, release de GitHub, etc.) y pegar la URL aqui.
+      - key: SOLO_IMG_TARBALL_URL
+        sync: false
       - key: DATABASE_URL
         sync: false
       # Opcional: OAuth Google en el servidor (si lo usas, añade en el dashboard o descomenta con sync: false)
