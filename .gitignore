@@ -26,6 +26,9 @@ web/frontend/.firebase/
 # PNG del corpus IA (~1 GB+); en Git solo van JSON/JSONL/README. Sube PNG por volumen, rsync o CI.
 corpus/generadas-img-ia-solo/**/*.png
 
+# Tarball grande generado para Render (ver scripts/make_solo_img_tar_for_render.ps1)
+solo-img-ia.tar.gz
+
 # Temporales de generación
 corpus/data/lote_prompts_tmp.json
 corpus/data/solo_generacion_en_curso.txt

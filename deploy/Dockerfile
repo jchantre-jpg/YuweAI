@@ -29,14 +29,20 @@ RUN mkdir -p /app/corpus/data /app/corpus/generadas-img-ia-solo /app/web/data
 COPY corpus/data/corpus_bilingue_v5.csv /app/corpus/data/
 COPY YuweAI/corpus/generadas-img-ia-solo/ /app/corpus/generadas-img-ia-solo/
 
-# Misma convencion que Dockerfile en la raiz del repo YuweAI (tar -czvf ... -C corpus generadas-img-ia-solo).
+# Misma logica que Dockerfile en la raiz YuweAI (tarball anidado o plano).
 ARG SOLO_IMG_TARBALL_URL=
 RUN set -eux; \
     if [ -n "$SOLO_IMG_TARBALL_URL" ]; then \
       echo "Downloading SOLO_IMG_TARBALL_URL ..."; \
       curl -fSL "$SOLO_IMG_TARBALL_URL" -o /tmp/solo_img_ia.tar.gz; \
-      tar -xzf /tmp/solo_img_ia.tar.gz -C /app/corpus/generadas-img-ia-solo/; \
-      rm -f /tmp/solo_img_ia.tar.gz; \
+      rm -rf /tmp/solo_ex && mkdir -p /tmp/solo_ex; \
+      tar -xzf /tmp/solo_img_ia.tar.gz -C /tmp/solo_ex; \
+      if [ -d /tmp/solo_ex/generadas-img-ia-solo ]; then \
+        cp -a /tmp/solo_ex/generadas-img-ia-solo/. /app/corpus/generadas-img-ia-solo/; \
+      else \
+        cp -a /tmp/solo_ex/. /app/corpus/generadas-img-ia-solo/; \
+      fi; \
+      rm -rf /tmp/solo_ex /tmp/solo_img_ia.tar.gz; \
       python3 -c "import pathlib; p=pathlib.Path('/app/corpus/generadas-img-ia-solo'); n=sum(1 for _ in p.rglob('*.png')); print('solo PNG count:', n); assert n >= 1, 'SOLO_IMG_TARBALL_URL: no se encontro ningun PNG'"; \
     else \
       echo "SOLO_IMG_TARBALL_URL unset; generadas-img-ia-solo solo desde el contexto de build."; \

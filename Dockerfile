@@ -49,16 +49,23 @@ ENV AVI_CORPUS_PATH=/app/corpus/data/corpus_bilingue_v5.csv
 # Léxico visual: rutas (JSON/JSONL) y PNG si están en el contexto de build (en Git suelen ir solo metadatos).
 COPY corpus/generadas-img-ia-solo/ /app/corpus/generadas-img-ia-solo/
 
-# Opcional (Render / CI): URL HTTPS a un .tar.gz creado con:
-#   tar -czvf solo-img-ia.tar.gz -C corpus generadas-img-ia-solo
+# Opcional (Render / CI): URL HTTPS a un .tar.gz (ver corpus/generadas-img-ia-solo/README.md).
+# Acepta tarball con rutas en la raiz (recomendado: tar -C corpus/generadas-img-ia-solo .)
+# o con prefijo generadas-img-ia-solo/ (tar -C corpus generadas-img-ia-solo en Windows).
 # Render expone las variables del servicio como Docker ARG durante el build (mismo nombre que la env).
 ARG SOLO_IMG_TARBALL_URL=
 RUN set -eux; \
     if [ -n "$SOLO_IMG_TARBALL_URL" ]; then \
       echo "Downloading SOLO_IMG_TARBALL_URL ..."; \
       curl -fSL "$SOLO_IMG_TARBALL_URL" -o /tmp/solo_img_ia.tar.gz; \
-      tar -xzf /tmp/solo_img_ia.tar.gz -C /app/corpus/generadas-img-ia-solo/; \
-      rm -f /tmp/solo_img_ia.tar.gz; \
+      rm -rf /tmp/solo_ex && mkdir -p /tmp/solo_ex; \
+      tar -xzf /tmp/solo_img_ia.tar.gz -C /tmp/solo_ex; \
+      if [ -d /tmp/solo_ex/generadas-img-ia-solo ]; then \
+        cp -a /tmp/solo_ex/generadas-img-ia-solo/. /app/corpus/generadas-img-ia-solo/; \
+      else \
+        cp -a /tmp/solo_ex/. /app/corpus/generadas-img-ia-solo/; \
+      fi; \
+      rm -rf /tmp/solo_ex /tmp/solo_img_ia.tar.gz; \
       python3 -c "import pathlib; p=pathlib.Path('/app/corpus/generadas-img-ia-solo'); n=sum(1 for _ in p.rglob('*.png')); print('solo PNG count:', n); assert n >= 1, 'SOLO_IMG_TARBALL_URL: no se encontro ningun PNG (revisa rutas dentro del .tar.gz)'"; \
     else \
       echo "SOLO_IMG_TARBALL_URL unset; generadas-img-ia-solo solo desde el contexto de build (sin PNG si estan en .gitignore)."; \

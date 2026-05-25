@@ -22,13 +22,17 @@ python scripts/export_term_image_map.py
 
 Los PNG suelen estar en `.gitignore`; el build en la nube no los ve. Opcion recomendada: **archivo `.tar.gz` + variable `SOLO_IMG_TARBALL_URL`**.
 
-1. Desde la raiz del repo `YuweAI` (donde estan `corpus/` y `web/`), con la carpeta local completa (incluye PNG):
+1. Desde la raiz del repo `YuweAI` (donde estan `corpus/` y `web/`), con la carpeta local completa (incluye PNG). **Recomendado** (contenido del tar en la raiz, sin carpeta extra):
 
    ```bash
-   tar -czvf solo-img-ia.tar.gz -C corpus generadas-img-ia-solo
+   tar -czvf solo-img-ia.tar.gz -C corpus/generadas-img-ia-solo .
    ```
 
-2. Sube `solo-img-ia.tar.gz` a un almacen con **URL de descarga directa** (por ejemplo bucket S3/R2 publico, release en GitHub con asset, Hugging Face con enlace raw que acepte `curl`).
+   En Windows, `tar -C corpus generadas-img-ia-solo` (sin `/...`) suele crear un prefijo `generadas-img-ia-solo/`; el `Dockerfile` del deploy **tambien lo acepta**.
+
+   Tambien puedes usar: `powershell -File scripts/make_solo_img_tar_for_render.ps1`
+
+2. Sube `solo-img-ia.tar.gz` a un almacen con **URL de descarga directa** (bucket S3/R2 publico, release en GitHub, Hugging Face). Opcion rapida con token: `python scripts/upload_solo_tarball_to_hf.py` (crea un repo **model** publico y sube el archivo; imprime la URL para `SOLO_IMG_TARBALL_URL`).
 
 3. En [Render](https://dashboard.render.com) → tu servicio **yuweai-avi-api** → **Environment** → añade:
 
@@ -37,7 +41,7 @@ Los PNG suelen estar en `.gitignore`; el build en la nube no los ve. Opcion reco
 
    Render inyecta las variables del servicio como **Docker ARG** durante el build: el `Dockerfile` descarga el tarball y lo descomprime sobre `/app/corpus/generadas-img-ia-solo/` antes de arrancar.
 
-4. Vuelve a desplegar (**Manual Deploy** o push a la rama conectada). El build fallara con un mensaje claro si la URL no devuelve un gzip valido o si dentro del archivo no hay ningun `.png` (revisa que el `tar` se creo con `-C corpus generadas-img-ia-solo` para que las rutas relativas coincidan).
+4. Vuelve a desplegar (**Manual Deploy** o push a la rama conectada). El build fallara con un mensaje claro si la URL no devuelve un gzip valido o si dentro del archivo no hay ningun `.png`.
 
 Si no defines `SOLO_IMG_TARBALL_URL`, la imagen solo lleva lo que venga en Git (metadatos sin PNG) y la app seguira usando Wikimedia donde no haya archivo local.
 
