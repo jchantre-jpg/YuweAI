@@ -38,14 +38,6 @@ _SOLO_IMAGE_INDEX_LOCK = threading.Lock()
 _SOLO_IMAGE_INDEX: tuple[dict[str, str], dict[str, str]] | None = None
 
 
-def _dictionary_solo_assets_only() -> bool:
-    """
-    True: el diccionario solo expone lexico con PNG real en generadas-img-ia-solo;
-    /api/image no consulta Wikimedia Commons. Desactivar: AVI_DICTIONARY_SOLO_ASSETS_ONLY=0
-    """
-    return os.environ.get("AVI_DICTIONARY_SOLO_ASSETS_ONLY", "1").strip().lower() in ("1", "true", "yes", "on")
-
-
 def _listen_port() -> int:
     raw = (os.environ.get("PORT") or "").strip()
     if not raw:
@@ -218,18 +210,6 @@ def _local_solo_image_payload(query: str, category: str, term_id: str = "") -> d
     }
 
 
-def _lexico_row_has_disk_solo_image(row: dict) -> bool:
-    """True si existe PNG local indexado para esta fila lexico."""
-    return (
-        _local_solo_image_payload(
-            str(row.get("espanol") or ""),
-            normalize_text(str(row.get("categoria") or "")),
-            str(row.get("id") or ""),
-        )
-        is not None
-    )
-
-
 def _lev_distance(a: str, b: str) -> int:
     """Distancia Levenshtein (sugerencias sin dependencias)."""
     if len(a) < len(b):
@@ -380,9 +360,8 @@ def _gloss_lookup(token: str):
 
 def fetch_commons_image(query: str, category: str = "", term_id: str = ""):
     """
-    Imagen del termino: primero PNG local (`generadas-img-ia-solo` + term_image_routes.json).
-    Sin PNG local: si AVI_DICTIONARY_SOLO_ASSETS_ONLY esta activo (por defecto), no se consulta Commons;
-    si el flag esta desactivado (valor 0/false), se usa Wikimedia Commons con busqueda guiada por tema.
+    Imagen del termino: primero PNG local (`generadas-img-ia-solo` + term_image_routes.json),
+    si no hay, Wikimedia Commons con busqueda guiada por tema.
     """
     core = _core_phrase_for_image(query or "")
     q = normalize_text(core) or normalize_text(query or "")
@@ -397,11 +376,6 @@ def fetch_commons_image(query: str, category: str = "", term_id: str = ""):
     if loc is not None:
         _image_cache_set(cache_key, loc)
         return loc
-
-    if _dictionary_solo_assets_only():
-        r = {"ok": False, "message": "Sin ilustracion en el corpus visual local.", "source": "none"}
-        _image_cache_set(cache_key, r)
-        return r
 
     if not q:
         r = {"ok": False, "message": "query vacia"}
@@ -1382,7 +1356,6 @@ class CorpusEngine:
         self.cache_ttl = 180  # seconds
         self.metrics = Counter()
         self.by_category = defaultdict(list)
-        self._solo_categories_cache: list[str] | None = None
         self.model = self._load_model()
         self._load()
 
@@ -1460,31 +1433,6 @@ class CorpusEngine:
         if cat_norm in VIRTUAL_CATEGORIES:
             return any(self.by_category.get(s) for s in VIRTUAL_CATEGORIES[cat_norm])
         return cat_norm in self.by_category
-
-    def _has_dictionary_category(self, cat_norm: str) -> bool:
-        """Categorias validas para /api/dictionary (respeta modo solo corpus visual)."""
-        if _dictionary_solo_assets_only():
-            return cat_norm in set(self._categories_with_solo_images())
-        return self._has_category(cat_norm)
-
-    def _categories_with_solo_images(self) -> list[str]:
-        """Categorias (y virtuales) que tienen al menos un lexico con PNG en generadas-img-ia-solo."""
-        if self._solo_categories_cache is not None:
-            return self._solo_categories_cache
-        seen: set[str] = set()
-        for row in self.rows:
-            if row.get("record_type") != "lexico":
-                continue
-            if not _lexico_row_has_disk_solo_image(row):
-                continue
-            ck = normalize_text(str(row.get("categoria") or "")) or "general"
-            seen.add(ck)
-        for virt, subs in VIRTUAL_CATEGORIES.items():
-            sub_keys = {normalize_text(str(s)) for s in subs}
-            if sub_keys & seen:
-                seen.add(virt)
-        self._solo_categories_cache = sorted(seen)
-        return self._solo_categories_cache
 
     def _idf(self, token: str) -> float:
         trained_idf = (self.model.get("idf") or {}).get(token)
@@ -1901,12 +1849,8 @@ class CorpusEngine:
 
     def lesson(self, category: str, limit: int = 8):
         cat_norm = normalize_text(category)
-        if not cat_norm or not self._has_dictionary_category(cat_norm):
-            options = (
-                self._categories_with_solo_images()[:12]
-                if _dictionary_solo_assets_only()
-                else sorted(self.by_category.keys())[:12]
-            )
+        if not cat_norm or not self._has_category(cat_norm):
+            options = sorted(self.by_category.keys())[:12]
             return {
                 "category": cat_norm,
                 "terms": [],
@@ -1924,15 +1868,13 @@ class CorpusEngine:
         max_terms = 10**9 if want_all else cap
 
         doc_ids = self._doc_ids_for_category(cat_norm)
-        if not want_all and not _dictionary_solo_assets_only():
+        if not want_all:
             doc_ids = doc_ids[: max(cap * 25, 600)]
 
         rows = []
         for doc_id in doc_ids:
             row = self.rows[doc_id]
             if row["record_type"] != "lexico":
-                continue
-            if _dictionary_solo_assets_only() and not _lexico_row_has_disk_solo_image(row):
                 continue
             rows.append(
                 {
@@ -1946,21 +1888,12 @@ class CorpusEngine:
             if not want_all and len(rows) >= max_terms:
                 break
         self.metrics["lessons"] += 1
-        avail = (
-            self._categories_with_solo_images()
-            if _dictionary_solo_assets_only()
-            else sorted(self.by_category.keys())
-        )
         return {
             "category": cat_norm,
             "terms": rows,
             "count": len(rows),
-            "available_categories": avail,
-            "message": (
-                "Solo terminos con ilustracion en corpus visual (generadas-img-ia-solo)."
-                if _dictionary_solo_assets_only()
-                else "Leccion generada con vocabulario del corpus real."
-            ),
+            "available_categories": sorted(self.by_category.keys()),
+            "message": "Leccion generada con vocabulario del corpus real.",
         }
 
     def lexicon_terms_flat(self, limit: int = 8000) -> list[dict]:
@@ -1973,8 +1906,6 @@ class CorpusEngine:
         out: list[dict] = []
         for row in self.rows:
             if row.get("record_type") != "lexico":
-                continue
-            if _dictionary_solo_assets_only() and not _lexico_row_has_disk_solo_image(row):
                 continue
             out.append(
                 {
@@ -2017,8 +1948,6 @@ class CorpusEngine:
             elif any(ql in part for part in es.split() if len(ql) >= 3):
                 score = 55
             if score:
-                if _dictionary_solo_assets_only() and not _lexico_row_has_disk_solo_image(row):
-                    continue
                 entry = {
                     "id": row.get("id"),
                     "espanol": row.get("espanol", ""),
@@ -2032,19 +1961,12 @@ class CorpusEngine:
         if lex_matches:
             best = lex_matches[0][1]
             alt = [x[1] for x in lex_matches[1:12]]
-            msg = (
-                "Encontrado (solo entradas con ilustracion en corpus visual)."
-                if _dictionary_solo_assets_only()
-                else "Encontrado en el corpus."
-            )
-            return {"found": best, "alternatives": alt, "suggestions": [], "message": msg}
+            return {"found": best, "alternatives": alt, "suggestions": [], "message": "Encontrado en el corpus."}
 
         # Sugerencias por similitud sobre lexico (espanol principal)
         sug = []
         for row in self.rows:
             if row.get("record_type") != "lexico":
-                continue
-            if _dictionary_solo_assets_only() and not _lexico_row_has_disk_solo_image(row):
                 continue
             es = str(row.get("espanol", "") or "")
             if len(es) < 2:
@@ -2221,28 +2143,13 @@ class CorpusEngine:
         }
 
     def stats(self):
-        if _dictionary_solo_assets_only():
-            cat_dist: dict[str, int] = {}
-            for row in self.rows:
-                if row.get("record_type") != "lexico":
-                    continue
-                if not _lexico_row_has_disk_solo_image(row):
-                    continue
-                ck = normalize_text(str(row.get("categoria") or "")) or "general"
-                cat_dist[ck] = cat_dist.get(ck, 0) + 1
-            for virt, subs in VIRTUAL_CATEGORIES.items():
-                n = sum(cat_dist.get(normalize_text(str(s)), 0) for s in subs)
-                if n > 0:
-                    cat_dist[virt] = n
-        else:
-            cat_dist = {k: len(v) for k, v in self.by_category.items()}
+        cat_dist = {k: len(v) for k, v in self.by_category.items()}
         record_types = Counter(r["record_type"] for r in self.rows)
         source_kinds = Counter(r.get("source_kind", "") for r in self.rows)
         return {
             "corpus_entries": len(self.rows),
-            "categories": len(cat_dist.keys()),
+            "categories": len(self.by_category.keys()),
             "category_distribution": cat_dist,
-            "dictionary_solo_assets_only": _dictionary_solo_assets_only(),
             "record_types": dict(record_types),
             "source_kinds": dict(source_kinds),
             "metrics": dict(self.metrics),
@@ -5101,7 +5008,6 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "categories": len(ENGINE.by_category.keys()),
                     "model": ENGINE.model.get("model_name", "runtime"),
                     "training_rows": ENGINE.model.get("training_rows", 0),
-                    "dictionary_solo_assets_only": _dictionary_solo_assets_only(),
                     "message": "AVI operativo",
                 },
                 ensure_ascii=False,
@@ -5275,7 +5181,6 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "categories": len(ENGINE.by_category.keys()),
                     "model": ENGINE.model.get("model_name", "runtime"),
                     "training_rows": ENGINE.model.get("training_rows", 0),
-                    "dictionary_solo_assets_only": _dictionary_solo_assets_only(),
                     "message": "AVI operativo",
                 }
             )

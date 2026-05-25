@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getDictionary, getDictionaryFull, getStats } from './api'
 import { examplePhrases, phoneticHint, speakText } from './corpusUtils'
-import { DictionaryTermImage } from './dictionaryTerm'
 import {
   ArrowLeft,
   Bookmark,
@@ -356,7 +355,6 @@ export function StudentDictionaryRoute({
           <div className="yuwe-dict-detail-split">
             <div className="yuwe-dict-detail-maincard">
               <div className="yuwe-dict-hero-visual">
-                <DictionaryTermImage term={sel} category={selCat} className="yuwe-dict-hero-img" />
                 <span className="yuwe-dict-leaf-ring" aria-hidden>
                   <Leaf size={28} strokeWidth={1.5} />
                 </span>
@@ -579,9 +577,6 @@ export function StudentDictionaryRoute({
                   const g = grammarRoleSpanish(row.term.espanol)
                   return (
                     <button key={`${row.term.id}-${row.category}`} type="button" className="yuwe-dict-word-card" onClick={() => openRow(row)}>
-                      <div className="yuwe-dict-card-img">
-                        <DictionaryTermImage term={row.term} category={row.category} />
-                      </div>
                       <strong>{cleanWord(row.term.nasa_yuwe)}</strong>
                       <small className="yuwe-dict-card-es">{cleanWord(row.term.espanol)}</small>
                       <span className="yuwe-dict-card-pos">{g}</span>
