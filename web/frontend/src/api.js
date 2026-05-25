@@ -124,7 +124,7 @@ export function getDialogues(category, limit = 6) {
 }
 
 /**
- * Imagen educativa (Wikimedia Commons vía backend).
+ * Imagen del término: PNG local vía `/api/image` (Commons solo si `AVI_DICTIONARY_SOLO_ASSETS_ONLY=0` en el servidor).
  */
 export function getImage(query, category = '', termId = '') {
   const q = encodeURIComponent(query || '')

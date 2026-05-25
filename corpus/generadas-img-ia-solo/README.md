@@ -4,10 +4,11 @@ Carpeta paralela a `generadas-img-ia/`: mismas rutas lógicas `\<categoria\>\<le
 
 ## Ver imagenes locales en la app (diccionario)
 
-El backend (`web/server.py`) resuelve `/api/image` asi:
+Variable de servidor **`AVI_DICTIONARY_SOLO_ASSETS_ONLY`** (por defecto **`1`** en `render.yaml`):
 
-1. Si existe `term_image_routes.json` y un PNG bajo `corpus/generadas-img-ia-solo/`, se sirve por **`/api/corpus-img/...`** (prioridad sobre Wikimedia).
-2. Si no hay PNG local, se sigue usando **Commons** (licencia abierta) como antes.
+1. Con **`1`**: `/api/dictionary`, `/api/dictionary/full` y `/api/dictionary/search` solo exponen terminos cuyo **PNG existe** bajo esta carpeta (segun `term_image_routes.json`). Las estadisticas de categorias reflejan solo esas entradas.
+2. Con **`1`**: `/api/image` solo devuelve ilustraciones locales (`/api/corpus-img/...`); **no** se usa Wikimedia Commons.
+3. Con **`0`**: el diccionario vuelve a listar todo el lexico del CSV y `/api/image` puede recurrir a **Commons** si no hay PNG local.
 
 Regenerar el indice tras cambiar el MD o el JSONL:
 
@@ -43,7 +44,7 @@ Los PNG suelen estar en `.gitignore`; el build en la nube no los ve. Opcion reco
 
 4. Vuelve a desplegar (**Manual Deploy** o push a la rama conectada). El build fallara con un mensaje claro si la URL no devuelve un gzip valido o si dentro del archivo no hay ningun `.png`.
 
-Si no defines `SOLO_IMG_TARBALL_URL`, la imagen solo lleva lo que venga en Git (metadatos sin PNG) y la app seguira usando Wikimedia donde no haya archivo local.
+Si no defines `SOLO_IMG_TARBALL_URL`, el contenedor en la nube no tendra PNG y el diccionario (con `AVI_DICTIONARY_SOLO_ASSETS_ONLY=1`) mostrara **pocas o ninguna** entrada hasta que subas el tarball o montes la carpeta.
 
 El cliente React pasa `id` del termino en `/api/image` para desambiguar gloss duplicados.
 

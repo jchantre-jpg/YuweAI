@@ -3,35 +3,18 @@ const lessonBtn = document.getElementById("lessonBtn");
 const lessonEl = document.getElementById("lesson");
 const statusEl = document.getElementById("status");
 const imageCache = new Map();
-const COLOR_MAP = {
-  rojo: "#c62828",
-  azul: "#1565c0",
-  verde: "#2e7d32",
-  amarillo: "#f9a825",
-  negro: "#212121",
-  blanco: "#fafafa",
-  naranja: "#ef6c00",
-  morado: "#6a1b9a",
-  rosado: "#e91e63",
-  cafe: "#6d4c41",
-  marron: "#6d4c41",
-  gris: "#757575",
-};
 
-function fallbackImage(text = "") {
-  const safe = (text || "Nasa Yuwe").replace(/</g, "").replace(/>/g, "");
-  return `https://placehold.co/640x420/EDDFC8/6B3E1F?text=${encodeURIComponent(safe)}`;
-}
-
-function buildColorSwatchImage(word) {
-  const tone = COLOR_MAP[(word || "").toLowerCase().trim()];
-  if (!tone) return null;
-  const hex = tone.replace("#", "");
+function emptyLocalImage() {
+  const svg =
+    "<svg xmlns='http://www.w3.org/2000/svg' width='640' height='420' viewBox='0 0 640 420'>" +
+    "<rect width='100%' height='100%' fill='%23f4efe6'/>" +
+    "<text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%238a7a68' font-size='22' font-family='system-ui'>Sin imagen</text>" +
+    "</svg>";
   return {
-    ok: true,
-    image_url: `https://singlecolorimage.com/get/${hex}/640x420`,
+    ok: false,
+    image_url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
     source_url: "#",
-    license: "muestra de color",
+    license: "sin imagen",
   };
 }
 
@@ -40,27 +23,19 @@ async function getFreeImage(word, category, termId = "") {
   const cat = (category || "").toLowerCase().trim();
   const tid = (termId || "").trim();
   const key = `${baseWord}|${cat}|${tid}`;
-  if (!key.replace(/\|/g, "")) return { image_url: fallbackImage("Nasa Yuwe"), source_url: "#", license: "N/A" };
+  if (!key.replace(/\|/g, "")) return emptyLocalImage();
   if (imageCache.has(key)) return imageCache.get(key);
-  if (cat === "colores") {
-    const swatch = buildColorSwatchImage(baseWord);
-    if (swatch) {
-      imageCache.set(key, swatch);
-      return swatch;
-    }
-  }
   try {
     const idq = tid ? `&id=${encodeURIComponent(tid)}` : "";
     const data = await fetch(
       `/api/image?q=${encodeURIComponent(baseWord)}&category=${encodeURIComponent(cat)}${idq}`,
     ).then((r) => r.json());
-    const result = data.ok && data.image_url
-      ? data
-      : { image_url: fallbackImage(baseWord), source_url: "#", license: "placeholder" };
+    const result =
+      data.ok && data.image_url ? data : emptyLocalImage();
     imageCache.set(key, result);
     return result;
   } catch (_) {
-    const result = { image_url: fallbackImage(baseWord), source_url: "#", license: "placeholder" };
+    const result = emptyLocalImage();
     imageCache.set(key, result);
     return result;
   }
@@ -94,7 +69,7 @@ async function renderLesson(data) {
     `;
     const imageEl = div.querySelector(".term-image");
     imageEl?.addEventListener("error", () => {
-      imageEl.src = fallbackImage(t.espanol);
+      imageEl.src = emptyLocalImage().image_url;
     });
     lessonEl.appendChild(div);
   });
