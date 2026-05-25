@@ -667,8 +667,16 @@ def compose_avi_chat_answer(
             )
 
     if topic == "gracias":
-        lines = _contexts_lexico_lines(contexts, 4, prefer_gloss="agradec")
-        lead = lines[0] if lines else "Nasa Yuwe: wecha- / wecháa- — 1. estar agradecido, agradecer"
+        lines = [
+            ln
+            for ln in _contexts_lexico_lines(contexts, 6, prefer_gloss="agradec")
+            if "agradec" in ln.lower() or "wecha" in ln.lower()
+        ]
+        if not lines:
+            lines = [
+                "• wecha- / wecháa- — 1. estar agradecido, agradecer; 2. saludar, despedir, besar"
+            ]
+        lead = lines[0]
         extra = ("\n\nOtras formas relacionadas:\n" + "\n".join(lines[1:])) if len(lines) > 1 else ""
         return (
             "Para agradecer o decir gracias, en el corpus aparece sobre todo el verbo de agradecimiento:\n\n"
@@ -912,14 +920,11 @@ class CorpusEngine:
                     add(i)
         elif topic == "gracias":
             for i, row in enumerate(self.rows):
-                esn = row.get("espanol_norm") or ""
-                ny = row.get("nasa_norm") or ""
                 if row.get("record_type") != "lexico":
                     continue
-                if "agradec" in esn or "agradecer" in esn or (ny.startswith("wecha") and "agradec" in esn):
-                    add(i)
-            for i, row in enumerate(self.rows):
-                if (row.get("nasa_norm") or "").startswith("wecha") and "agradec" in (row.get("espanol_norm") or ""):
+                esn = row.get("espanol_norm") or ""
+                ny = row.get("nasa_norm") or ""
+                if "agradecer" in esn or (ny.startswith("wecha") and "agradec" in esn):
                     add(i)
         elif topic == "despedida":
             for i, row in enumerate(self.rows):
