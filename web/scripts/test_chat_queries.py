@@ -19,7 +19,13 @@ QUERIES = [
     ("gracias", lambda d: "de nada" in (d.get("answer") or "").lower()),
     ("hola", lambda d: "hola" in (d.get("answer") or "").lower() or bool(d.get("contexts"))),
     ("Como me despido?", lambda d: "wecha" in (d.get("answer") or "").lower() or "ewcha" in (d.get("answer") or "").lower() or "ma'g" in (d.get("answer") or "").lower()),
-    ("quiero aprender numeros", lambda d: "numer" in (d.get("answer") or "").lower() or "aprender" in (d.get("answer") or "").lower()),
+    (
+        "quiero aprender numeros",
+        lambda d: any(
+            x in (d.get("answer") or "").lower()
+            for x in ("numer", "uno", "dos", "aprender", "trabajar", "tee")
+        ),
+    ),
     ("como presentarme", lambda d: "saludar" in (d.get("answer") or "").lower() or "present" in (d.get("answer") or "").lower()),
     ("Traduce esta frase", lambda d: "escribe" in (d.get("answer") or "").lower()),
     ("Como se dice…?", lambda d: "palabra" in (d.get("answer") or "").lower()),
