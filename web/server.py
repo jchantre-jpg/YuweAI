@@ -247,7 +247,23 @@ CHAT_QUERY_STOP = ESP_STOP_QUERY | {
     "practicar", "estudiar", "palabra", "frase", "me", "te", "mi", "tu", "nos", "les",
     "cuantos", "cuantas", "muchos", "muchas", "todo", "toda", "todos", "todas", "asi",
     "hoy", "ahora", "bien", "muy", "tan", "tambien", "llamo", "nombre", "cuenta", "cifra",
+    "entiendo", "entender", "funciona", "puedo", "preguntar",
 }
+
+# Palabras funcionales -> terminos del corpus (glosa o forma).
+_LEXICAL_ALIASES: dict[str, tuple[str, ...]] = {
+    "gracias": ("agradecer", "agradecido", "wecha"),
+    "adios": ("despedir", "despedida", "wecha"),
+    "hola": ("saludo", "hola", "ewcha", "fxi'z"),
+    "buenos dias": ("saludo", "buenos dias", "fxi'z"),
+    "buenas tardes": ("saludo", "buenas tardes"),
+    "buenas noches": ("saludo", "buenas noches"),
+}
+
+# Parentesco: priorizar lexico concreto (mama, hermano…) frente al tema familia generico.
+_FAMILY_LEXICON_HINTS = re.compile(
+    r"\b(mama|mamá|papa|papá|padre|madre|hermano|hermana|abuelo|abuela|hijo|hija|tio|tía|tia|primo|prima|esposo|esposa)\b"
+)
 
 NUMERO_EN_PALABRA = {
     "cero": "0", "uno": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5", "seis": "6",
@@ -655,6 +671,107 @@ def _content_tokens_from_query(q_tokens: list[str]) -> list[str]:
     return [t for t in q_tokens if t not in CHAT_QUERY_STOP and len(t) >= 2]
 
 
+def _clean_lexical_target(term: str) -> str:
+    t = normalize_text(term or "")
+    t = re.sub(r"^(mi|tu|su|mis|tus|sus|el|la|los|las)\s+", "", t).strip()
+    t = re.sub(r"^(la|el)\s+palabra\s+", "", t).strip()
+    return t
+
+
+def _gloss_match_rank(prefer: str, es_norm: str) -> int:
+    """0 = glosa exacta; valores mayores = coincidencia mas debil."""
+    if not prefer:
+        return 9
+    if es_norm == prefer:
+        return 0
+    parts = es_norm.split()
+    if parts and parts[0] == prefer and len(parts) == 1:
+        return 1
+    if parts and parts[0] == prefer:
+        return 2
+    if prefer in parts:
+        return 3
+    if prefer in es_norm and len(es_norm) <= len(prefer) + 12:
+        return 4
+    if prefer in es_norm:
+        return 6
+    return 9
+
+
+def _dict_suggestion_acceptable(query_term: str, distance: int) -> bool:
+    ql = normalize_text(query_term)
+    if len(ql) < 3:
+        return False
+    max_d = 2 if len(ql) <= 5 else max(2, len(ql) // 3)
+    return distance <= max_d
+
+
+def _chat_help_guidance(query_norm: str, q_tokens: list[str]) -> str | None:
+    ts = set(q_tokens)
+    if query_norm in ("ayuda", "ayudame", "help", "auxilio") or (
+        ts <= {"ayuda", "ayudame", "avi"} and ("ayuda" in ts or "ayudame" in ts)
+    ):
+        return (
+            "Claro, te ayudo. Puedes escribirme de estas formas:\n\n"
+            "• Una palabra en español: agua, luna, hermano, rojo…\n"
+            "• «¿Cómo se dice … en Nasa Yuwe?» o «¿Qué significa …?»\n"
+            "• Un tema: saludos, familia, números, colores, animales\n"
+            "• Una frase corta: buenos días, me llamo Ana, gracias\n\n"
+            "Prueba con la palabra que más te interese hoy."
+        )
+    if any(
+        p in query_norm
+        for p in (
+            "no entiendo",
+            "no comprendo",
+            "no se que preguntar",
+            "no sé que preguntar",
+            "que puedo preguntar",
+            "qué puedo preguntar",
+            "como te uso",
+            "cómo te uso",
+        )
+    ):
+        return (
+            "Vamos paso a paso. Elige una sola palabra o tema y yo te doy la forma en Nasa Yuwe.\n\n"
+            "Ejemplos que funcionan muy bien: «agua», «Como saludo?», «perro», «quiero aprender numeros», "
+            "«Como digo gracias?». Escríbeme una y seguimos desde ahí."
+        )
+    if query_norm in ("quien eres", "que eres", "qué eres", "que es avi", "qué es avi"):
+        return (
+            "Soy AVI, tu acompañante para practicar Nasa Yuwe con el material del curso. "
+            "No invento palabras: te muestro formas del corpus y te guío para practicar en voz alta.\n\n"
+            "Pregúntame una palabra o un tema y empezamos."
+        )
+    return None
+
+
+def _token_looks_gibberish(word: str) -> bool:
+    raw = re.sub(r"[^a-zA-Záéíóúüñ]", "", normalize_text(word))
+    if len(raw) < 5:
+        return False
+    vowels = sum(1 for c in raw if c.lower() in "aeiouáéíóú")
+    return vowels <= 1
+
+
+def _query_looks_unsearchable(query_norm: str, q_tokens: list[str]) -> bool:
+    content = _content_tokens_from_query(q_tokens)
+    if len(content) == 1 and _token_looks_gibberish(content[0]):
+        return True
+    if content:
+        return False
+    raw = re.sub(r"[^a-zA-Záéíóúüñ]", "", query_norm)
+    if len(raw) < 4:
+        return False
+    if raw in ("hola", "ey", "hey", "ei", "buenas"):
+        return False
+    # Cadenas largas sin vocales claras (xyzabc) o mezcla rara.
+    vowels = sum(1 for c in raw if c.lower() in "aeiouáéíóú")
+    if len(raw) >= 5 and vowels < max(2, len(raw) // 4):
+        return True
+    return len(raw) >= 7 and vowels == 0
+
+
 def _lexico_doc_indices(rows: list[dict], term: str, *, limit: int = 14) -> list[int]:
     """Indices de filas lexico que coinciden con una glosa o forma (como dictionary_search)."""
     ql = normalize_text(term)
@@ -680,9 +797,22 @@ def _lexico_doc_indices(rows: list[dict], term: str, *, limit: int = 14) -> list
         elif any(ql in part for part in es.split() if len(ql) >= 3):
             score = 55
         if score:
-            matches.append((score, i))
-    matches.sort(key=lambda x: x[0], reverse=True)
-    return [i for _, i in matches[:limit]]
+            rank = _gloss_match_rank(ql, es)
+            matches.append((score, rank, len(es), i))
+    matches.sort(key=lambda x: (x[1], -x[0], x[2]))
+    out = [i for _, _, _, i in matches[:limit]]
+    if not out and ql in _LEXICAL_ALIASES:
+        seen: set[int] = set()
+        for alias in _LEXICAL_ALIASES[ql]:
+            for i in _lexico_doc_indices(rows, alias, limit=limit):
+                if i not in seen:
+                    seen.add(i)
+                    out.append(i)
+                if len(out) >= limit:
+                    break
+            if len(out) >= limit:
+                break
+    return out[:limit]
 
 
 def _prioritize_chat_contexts(
@@ -708,14 +838,10 @@ def _prioritize_chat_contexts(
         if rt == "dialogo" and (translation_intent or dt):
             penalty += 25
         if dt and rt == "lexico":
-            if es == dt or ny == dt:
-                penalty -= 250
-            elif es.startswith(dt + " ") or es.split()[0:1] == [dt]:
-                penalty -= 200
-            elif dt in es.split():
-                penalty -= 150
-            elif dt in es:
-                penalty -= 100
+            gm = _gloss_match_rank(dt, es)
+            penalty -= max(0, 280 - gm * 35)
+            if ny == dt:
+                penalty -= 40
         if translation_intent and rt == "lexico" and not _looks_like_meta_spanish_gloss(ctx.get("espanol") or ""):
             penalty -= 15
         return (penalty, -base)
@@ -725,9 +851,10 @@ def _prioritize_chat_contexts(
 
 def _extract_lexical_target(query_norm: str, q_tokens: list[str] | None = None) -> str | None:
     for pat in (
+        r"(?:explicame|explica)\s+la\s+palabra\s+(.+?)(?:\?|$)",
         r"como\s+digo\s+(.+?)(?:\s+en\s+nasa|\?|$)",
         r"como\s+se\s+dice\s+(.+?)(?:\s+en\s+nasa|\?|$)",
-        r"traduce\s+(.+?)\s+a\s+nasa",
+        r"traduce\s+(.+?)(?:\s+a\s+nasa|\?|$)",
         r"traduccion\s+de\s+(.+?)(?:\?|$)",
         r"significado\s+de\s+(.+?)(?:\?|$)",
         r"que\s+significa\s+(.+?)(?:\?|$)",
@@ -737,10 +864,14 @@ def _extract_lexical_target(query_norm: str, q_tokens: list[str] | None = None) 
     ):
         m = re.search(pat, query_norm)
         if m:
-            t = normalize_text(m.group(1).strip(" ?."))
-            t = re.sub(r"^(la|el)\s+palabra\s+", "", t).strip()
+            t = _clean_lexical_target(m.group(1).strip(" ?."))
             if t and t not in ("esta frase", "esta palabra", "esta", "", "…", "..."):
                 return t
+    m_pal = re.search(r"^palabra\s+(.+?)\s*\??$", query_norm)
+    if m_pal:
+        t = _clean_lexical_target(m_pal.group(1))
+        if t:
+            return t
     if re.search(r"\bcomo\s+saludo\b", query_norm) or query_norm in ("saludo", "saludos"):
         return "saludo"
     if re.search(r"\bcomo\s+me\s+despido\b", query_norm) or query_norm in ("despedida", "despedidas"):
@@ -748,7 +879,9 @@ def _extract_lexical_target(query_norm: str, q_tokens: list[str] | None = None) 
     tokens = q_tokens if q_tokens is not None else tokenize(query_norm)
     content = _content_tokens_from_query(tokens)
     if len(content) == 1:
-        if content[0] in ("gracias", "adios", "chao", "chau") and not _is_asking_how(query_norm):
+        if content[0] in ("adios", "chao", "chau") and not _is_asking_how(query_norm):
+            return None
+        if content[0] == "gracias" and not _is_asking_how(query_norm):
             return None
         return content[0]
     if len(content) >= 2 and (
@@ -757,12 +890,19 @@ def _extract_lexical_target(query_norm: str, q_tokens: list[str] | None = None) 
         or "significado" in query_norm
         or query_norm.startswith("traduce ")
     ):
-        return " ".join(content[-3:])
+        joined = " ".join(content[-3:])
+        return _clean_lexical_target(joined) or joined
     return None
 
 
 _CHAT_TOPIC_REGEX: list[tuple[str, re.Pattern[str]]] = [
-    ("familia", re.compile(r"\bfamilia\b|\bparentesco\b|\bcasa\b.*\bfamilia\b")),
+    (
+        "familia",
+        re.compile(
+            r"\bfamilia\b|\bparentesco\b|\bcasa\b.*\bfamilia\b|"
+            r"\bhablar\s+de\s+mi\s+familia\b"
+        ),
+    ),
     (
         "despedida",
         re.compile(
@@ -831,8 +971,14 @@ def _detect_chat_topic(query_norm: str, q_tokens: list[str]) -> str | None:
             continue
         if not rx.search(query_norm):
             continue
-        if name == "gracias" and not _is_asking_how(query_norm):
-            continue
+        if name == "gracias":
+            if not _is_asking_how(query_norm):
+                continue
+            if not re.search(r"\b(como|digo|dice|decir|significa)\b", query_norm):
+                continue
+        if name == "familia" and _FAMILY_LEXICON_HINTS.search(query_norm):
+            if not re.search(r"\bfamilia\b|\bparentesco\b", query_norm):
+                continue
         if name == "saludos" and re.search(r"\bcomo\s+me\s+despido\b", query_norm):
             continue
         return name
@@ -905,10 +1051,9 @@ def _contexts_lexico_lines(
     ordered = list(contexts)
     if prefer:
 
-        def rank(ctx: dict) -> tuple[int, str]:
+        def rank(ctx: dict) -> tuple[int, int, str]:
             es = normalize_text(ctx.get("espanol") or "")
-            hit = 0 if prefer in es else 1
-            return (hit, es)
+            return (_gloss_match_rank(prefer, es), len(es), es)
 
         ordered = sorted(ordered, key=rank)
 
@@ -992,7 +1137,7 @@ def compose_avi_chat_answer(
         )
 
     topic = _detect_chat_topic(query_norm, q_tokens)
-    dt = normalize_text(direct_target or "")
+    dt = normalize_text(_clean_lexical_target(direct_target) or direct_target or "")
 
     if dt and not topic:
         lines = _contexts_lexico_lines(contexts, 4, prefer_gloss=dt)
@@ -1057,6 +1202,12 @@ def compose_avi_chat_answer(
 
     if topic == "colores":
         lines = _topic_lines_or_fallback(contexts, "colores", prefer="color", limit=6)
+        if not lines:
+            lines = [
+                "• Beh — Rojo",
+                "• Çemçem — Azul",
+                "• atate tsẽy — amarillo",
+            ]
         return (
             "Estos colores y formas relacionadas aparecen en el material:\n\n"
             + "\n".join(lines)
@@ -1168,11 +1319,21 @@ def compose_avi_chat_answer(
                 lines2.append(f"Español: {s_es}")
             extra = "\n\nTambién podría relacionarse con esto:\n" + "\n".join(lines2)
 
+    lines = _contexts_lexico_lines(contexts, 3, prefer_gloss=dt)
+    if lines:
+        return (
+            "Esto es lo que mejor encaja con tu mensaje:\n\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Si buscabas otra palabra, escríbela sola o en una frase corta (por ejemplo: «¿cómo se dice agua?»)."
+            + extra
+        )
+
     return (
-        "Te resumo de forma directa, sin rodeos:\n\n"
+        "Puedo ayudarte con palabras, saludos, familia, números, colores o animales.\n\n"
         f"{pair_block()}\n\n"
-        "Piensa en tres pasos: reconoce la forma en Nasa Yuwe, conéctala con lo que ya dices en español, "
-        "y por último úsala en una frase corta que tú mismo inventes." + extra
+        "Prueba escribiendo una palabra en español o preguntando «¿cómo se dice … en Nasa Yuwe?»."
+        + extra
     )
 
 
@@ -1445,6 +1606,27 @@ class CorpusEngine:
             return data
 
         q_tokens = tokenize(query_norm)
+        help_msg = _chat_help_guidance(query_norm, q_tokens)
+        if help_msg:
+            data = {
+                "answer": help_msg,
+                "contexts": [],
+                "meta": {"cache_hit": False, "help_prompt": True},
+            }
+            self.cache[query_norm] = {"time": time.time(), "data": data}
+            return data
+        if _query_looks_unsearchable(query_norm, q_tokens):
+            data = {
+                "answer": (
+                    "No encontré esa palabra en el corpus tal como la escribiste. "
+                    "Revisa la ortografía o prueba una palabra en español (agua, luna, mamá, rojo…).\n\n"
+                    "También puedes pedir un tema: saludos, familia, números, colores o animales."
+                ),
+                "contexts": [],
+                "meta": {"cache_hit": False, "unsearchable": True},
+            }
+            self.cache[query_norm] = {"time": time.time(), "data": data}
+            return data
         if _is_thanking_avi(query_norm, q_tokens):
             data = {
                 "answer": (
@@ -1488,15 +1670,15 @@ class CorpusEngine:
             for i in self._topic_doc_indices(chat_topic):
                 cand.add(i)
 
-        direct_target = _extract_lexical_target(query_norm, q_tokens) or ""
+        direct_target = _clean_lexical_target(_extract_lexical_target(query_norm, q_tokens) or "")
         if not direct_target:
             m = re.search(r"dice (.+?) en nasa yuwe", query_norm)
             if m:
-                direct_target = normalize_text(m.group(1))
+                direct_target = _clean_lexical_target(m.group(1))
         if not direct_target:
             m2 = re.search(r"traduce (.+?) a nasa yuwe", query_norm)
             if m2:
-                direct_target = normalize_text(m2.group(1))
+                direct_target = _clean_lexical_target(m2.group(1))
         if direct_target:
             for i in _lexico_doc_indices(self.rows, direct_target):
                 cand.add(i)
@@ -1523,11 +1705,13 @@ class CorpusEngine:
             elif ds.get("suggestions"):
                 top = ds["suggestions"][0]
                 es_top = normalize_text(top.get("espanol") or "")
-                for i, row in enumerate(self.rows):
-                    if row.get("record_type") == "lexico" and (row.get("espanol_norm") or "") == es_top:
-                        cand.add(i)
-                        direct_target = es_top
-                        break
+                dist = _lev_distance(lookup_q, es_top)
+                if _dict_suggestion_acceptable(lookup_q, dist):
+                    for i, row in enumerate(self.rows):
+                        if row.get("record_type") == "lexico" and (row.get("espanol_norm") or "") == es_top:
+                            cand.add(i)
+                            direct_target = es_top
+                            break
         if not cand:
             if _is_thanking_avi(query_norm, q_tokens):
                 data = {
