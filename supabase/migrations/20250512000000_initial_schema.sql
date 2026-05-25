@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS cms_items (
     kind TEXT NOT NULL,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
-    updated_at DOUBLE PRECISION NOT NULL
+    updated_at DOUBLE PRECISION NOT NULL,
+    status TEXT NOT NULL DEFAULT 'published'
 );
 
 CREATE TABLE IF NOT EXISTS student_grades (
@@ -87,7 +88,20 @@ CREATE TABLE IF NOT EXISTS student_settings (
     notif_streak SMALLINT NOT NULL DEFAULT 1,
     notif_tips SMALLINT NOT NULL DEFAULT 0,
     consent_given SMALLINT NOT NULL DEFAULT 1,
-    updated_at DOUBLE PRECISION NOT NULL DEFAULT 0
+    updated_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+    vocab_diary_json TEXT NOT NULL DEFAULT '{}',
+    dictionary_categories_json TEXT NOT NULL DEFAULT '[]',
+    streak_current INTEGER NOT NULL DEFAULT 0,
+    streak_last_active_ymd TEXT,
+    avi_chat_json TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS user_app_state (
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    namespace TEXT NOT NULL,
+    payload TEXT NOT NULL DEFAULT '{}',
+    updated_at DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (user_id, namespace)
 );
 
 CREATE TABLE IF NOT EXISTS learning_activities (

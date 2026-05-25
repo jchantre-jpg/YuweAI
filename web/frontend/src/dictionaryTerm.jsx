@@ -10,7 +10,7 @@ export function DictionaryTermImage({ term, category, className = '' }) {
     let cancelled = false
     setBroken(false)
     setImg(null)
-    fetchTermImage(term?.espanol, term?.categoria || category).then((data) => {
+    fetchTermImage(term?.espanol, term?.categoria || category, term?.id || '').then((data) => {
       if (!cancelled) setImg(data)
     })
     return () => {

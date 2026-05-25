@@ -126,10 +126,12 @@ export function getDialogues(category, limit = 6) {
 /**
  * Imagen educativa (Wikimedia Commons vía backend).
  */
-export function getImage(query, category = '') {
+export function getImage(query, category = '', termId = '') {
   const q = encodeURIComponent(query || '')
   const c = encodeURIComponent(category || '')
-  return request(`/api/image?q=${q}&category=${c}`)
+  const id = (termId || '').trim()
+  const idq = id ? `&id=${encodeURIComponent(id)}` : ''
+  return request(`/api/image?q=${q}&category=${c}${idq}`)
 }
 
 /** ---------- Autenticación ---------- */

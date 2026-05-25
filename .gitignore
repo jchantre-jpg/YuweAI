@@ -5,6 +5,7 @@ __pycache__/
 .Python
 .env
 .env.local
+.env.production
 .expo/
 dist/
 .vite/
@@ -18,3 +19,14 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Firebase cache local (no credenciales en repo)
+web/frontend/.firebase/
+
+# PNG del corpus IA (~1 GB+); en Git solo van JSON/JSONL/README. Sube PNG por volumen, rsync o CI.
+corpus/generadas-img-ia-solo/**/*.png
+
+# Temporales de generación
+corpus/data/lote_prompts_tmp.json
+corpus/data/solo_generacion_en_curso.txt
+corpus/data/generadas img con ia/

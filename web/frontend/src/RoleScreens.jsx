@@ -3369,9 +3369,6 @@ export function StudentActivitiesRoute({
                 {t('practice.pageTitle')}
                 <span className="learn-mock-title-accent" aria-hidden />
               </h2>
-              {t('practice.pageSubLong').trim() ? (
-                <p className="learn-mock-sub">{t('practice.pageSubLong')}</p>
-              ) : null}
             </div>
             <div className="learn-mock-art" aria-hidden>
               <img src={learnWelcomeIllustration} alt="" className="learn-mock-art-img" />
@@ -3898,10 +3895,6 @@ export function StudentLearnRoute({ t, categories, setCategory, navigateTo }) {
                 {t('learn.pageTitle')}
                 <span className="learn-mock-title-accent" aria-hidden />
               </h2>
-              {t('learn.pageSubLong').trim() ? (
-                <p className="learn-mock-sub">{t('learn.pageSubLong')}</p>
-              ) : null}
-              {t('learn.ctaHint').trim() ? <p className="learn-mock-cta-hint">{t('learn.ctaHint')}</p> : null}
             </div>
             <div className="learn-mock-art" aria-hidden>
               <img src={learnWelcomeIllustration} alt="" className="learn-mock-art-img" />

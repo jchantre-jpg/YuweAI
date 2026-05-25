@@ -119,29 +119,27 @@ export function speakText(text, mode = 'es') {
   return true
 }
 
-const DIARY_KEY = 'avi-vocab-diary'
+import { saveStudentSettings } from './api'
 
+const _emptyDiary = () => ({ validated: 0, items: [] })
+
+/** Sin token no hay persistencia; la fuente de verdad es el servidor (`vocab_diary` en ajustes de estudiante). */
 export function loadVocabDiary() {
-  try {
-    const raw = window.localStorage.getItem(DIARY_KEY)
-    if (!raw) return { validated: 0, items: [] }
-    return { validated: 0, items: [], ...JSON.parse(raw) }
-  } catch {
-    return { validated: 0, items: [] }
-  }
+  return _emptyDiary()
 }
 
-export function saveVocabDiary(diary) {
-  try {
-    window.localStorage.setItem(DIARY_KEY, JSON.stringify(diary))
-  } catch {
-    /* ignore */
-  }
+export function saveVocabDiary(_diary) {
+  /* Usar syncVocabDiaryToServer(token, diary) cuando exista sesión. */
 }
 
-export async function fetchTermImage(espanol, category) {
+export async function syncVocabDiaryToServer(token, diary) {
+  if (!token) return
+  await saveStudentSettings(token, { vocab_diary: diary })
+}
+
+export async function fetchTermImage(espanol, category, termId = '') {
   try {
-    return await getImage(espanol || '', category || '')
+    return await getImage(espanol || '', category || '', termId || '')
   } catch {
     return { ok: false }
   }

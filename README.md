@@ -1,6 +1,20 @@
+---
+title: YuweAI — AVI (demo)
+emoji: 🌿
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 8090
+short_description: AVI — asistente Nasa Yuwe (Python + React) en un Space Docker.
+---
+
 # YuweAI
 
 Código fuente del asistente virtual inteligente (**AVI**) para enseñanza de **Nasa Yuwe**: aplicación **web** (Python + React/Vite) y envoltorio **móvil** (Expo / WebView).
+
+> **Hugging Face Space:** el bloque YAML de arriba configura el Space cuando conectas este repo a [Hugging Face Spaces](https://huggingface.co/docs/hub/spaces-overview). El `Dockerfile` está en la **raíz** del repo. Pasos en [`deploy/DESPLIEGUE-GRATIS.md`](deploy/DESPLIEGUE-GRATIS.md) (sección *Hugging Face Space*).
+>
+> **Supabase + Render + Firebase Hosting:** plantillas y guía en [`deploy/PLATAFORMA-SUPABASE-RENDER-FIREBASE.md`](deploy/PLATAFORMA-SUPABASE-RENDER-FIREBASE.md).
 
 Repositorio público: [github.com/jchantre-jpg/YuweAI](https://github.com/jchantre-jpg/YuweAI)
 
@@ -9,9 +23,10 @@ Repositorio público: [github.com/jchantre-jpg/YuweAI](https://github.com/jchant
 | Carpeta | Descripción |
 |--------|---------------|
 | [`web/`](web/) | Backend (`server.py`), API JSON, `frontend/` (React + Vite), `static/`, modelos y scripts. |
+| [`corpus/`](corpus/) | Carpeta para el CSV del diccionario en despliegues (p. ej. Hugging Face); ver `corpus/README.md`. |
 | [`mobile/`](mobile/) | App Expo que abre la misma interfaz web en un `WebView` dentro de la red local. |
 
-No se incluye el **corpus** completo ni la memoria de grado: coloca el CSV según [`web/README.md`](web/README.md) o la ruta que configures.
+No se incluye el **corpus** completo en el remoto por defecto: coloca el CSV según [`web/README.md`](web/README.md), [`corpus/README.md`](corpus/README.md) o la ruta que configures (`AVI_CORPUS_PATH`).
 
 ## Requisitos
 

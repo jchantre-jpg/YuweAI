@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -29,6 +29,13 @@ if _CORPUS_ENV:
 else:
     CORPUS_PATH = _CORPUS_UNDER_REPO if _CORPUS_UNDER_REPO.exists() else _CORPUS_SIBLING
 MODEL_PATH = BASE_DIR / "models" / "retrieval_model_v1.json"
+
+_SOLO_IMG_UNDER_REPO = BASE_DIR.parent / "corpus" / "generadas-img-ia-solo"
+_SOLO_IMG_ENV = os.environ.get("AVI_SOLO_IMG_DIR", "").strip()
+SOLO_IMG_DIR = Path(_SOLO_IMG_ENV) if _SOLO_IMG_ENV else _SOLO_IMG_UNDER_REPO
+TERM_IMAGE_ROUTES_PATH = SOLO_IMG_DIR / "term_image_routes.json"
+_SOLO_IMAGE_INDEX_LOCK = threading.Lock()
+_SOLO_IMAGE_INDEX: tuple[dict[str, str], dict[str, str]] | None = None
 
 
 def _listen_port() -> int:
@@ -138,6 +145,69 @@ def normalize_text(text: str) -> str:
 
 def tokenize(text: str):
     return [t for t in normalize_text(text).split(" ") if t]
+
+
+def _get_solo_image_index() -> tuple[dict[str, str], dict[str, str]]:
+    """(by_id, by_lex_key) rutas relativas PNG bajo corpus/generadas-img-ia-solo."""
+    global _SOLO_IMAGE_INDEX
+    with _SOLO_IMAGE_INDEX_LOCK:
+        if _SOLO_IMAGE_INDEX is not None:
+            return _SOLO_IMAGE_INDEX
+        by_id: dict[str, str] = {}
+        by_lex: dict[str, str] = {}
+        legacy = SOLO_IMG_DIR / "term_image_map.json"
+        try:
+            if TERM_IMAGE_ROUTES_PATH.is_file():
+                raw = json.loads(TERM_IMAGE_ROUTES_PATH.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    bid = raw.get("by_id")
+                    blk = raw.get("by_lex_key")
+                    if isinstance(bid, dict):
+                        by_id = {str(k).strip(): str(v).strip().replace("\\", "/") for k, v in bid.items() if k and v}
+                    if isinstance(blk, dict):
+                        by_lex = {str(k).strip(): str(v).strip().replace("\\", "/") for k, v in blk.items() if k and v}
+            elif legacy.is_file():
+                raw = json.loads(legacy.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and "by_id" not in raw:
+                    by_lex = {str(k).strip(): str(v).strip().replace("\\", "/") for k, v in raw.items() if k and v}
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+        _SOLO_IMAGE_INDEX = (by_id, by_lex)
+        return _SOLO_IMAGE_INDEX
+
+
+def _local_solo_image_payload(query: str, category: str, term_id: str = "") -> dict | None:
+    """Si existe PNG local para el termino, devuelve dict compatible con fetch_commons_image."""
+    by_id, by_lex = _get_solo_image_index()
+    rel = ""
+    tid = (term_id or "").strip()
+    if tid and tid in by_id:
+        rel = by_id[tid]
+    if not rel:
+        k = f"{normalize_text(query or '')}|{normalize_text(category or '')}"
+        rel = by_lex.get(k, "")
+    if not rel:
+        return None
+    try:
+        p = (SOLO_IMG_DIR / rel).resolve()
+        root = SOLO_IMG_DIR.resolve()
+    except OSError:
+        return None
+    if not str(p).startswith(str(root)) or not p.is_file():
+        return None
+    if p.suffix.lower() != ".png":
+        return None
+    url = f"/api/corpus-img/{rel}"
+    return {
+        "ok": True,
+        "query": normalize_text(query or ""),
+        "image_url": url,
+        "thumb_url": url,
+        "source_url": "",
+        "license": "ilustracion corpus YuweAI (generada)",
+        "author": "corpus generadas-img-ia-solo",
+        "source": "corpus_solo",
+    }
 
 
 def _lev_distance(a: str, b: str) -> int:
@@ -261,20 +331,29 @@ def _gloss_lookup(token: str):
     return None, None
 
 
-def fetch_commons_image(query: str, category: str = ""):
+def fetch_commons_image(query: str, category: str = "", term_id: str = ""):
     """
-    Imagen de Wikimedia Commons, con busqueda guiada por tema y puntuacion estricta
-    (evita iconos, mapas o resultados con poca relacion).
+    Imagen del termino: primero PNG local (`generadas-img-ia-solo` + term_image_routes.json),
+    si no hay, Wikimedia Commons con busqueda guiada por tema.
     """
     core = _core_phrase_for_image(query or "")
     q = normalize_text(core) or normalize_text(query or "")
     cat = normalize_text(category)
-    if not q:
-        return {"ok": False, "message": "query vacia"}
-    cache_key = f"{q}|{cat}"
+    tid = (term_id or "").strip()
+    cache_key = f"{q}|{cat}|{tid}"
     hit = _image_cache_get(cache_key)
     if hit is not None:
         return hit
+
+    loc = _local_solo_image_payload(query or "", category or "", tid)
+    if loc is not None:
+        _image_cache_set(cache_key, loc)
+        return loc
+
+    if not q:
+        r = {"ok": False, "message": "query vacia"}
+        _image_cache_set(cache_key, r)
+        return r
 
     cat_hint = _image_cat_hint_ui(category)
     toks = tokenize(q)
@@ -539,10 +618,13 @@ def _looks_like_meta_spanish_gloss(es: str) -> bool:
 
 def _is_asking_how(query_norm: str) -> bool:
     return bool(
-        re.search(r"\bcomo\s+(digo|se\s+dice|saludo|pregunto|me\s+despido)\b", query_norm)
+        re.search(
+            r"\bcomo\s+(digo|se\s+dice|saludo|pregunto|me\s+despido|presento|presentarme)\b",
+            query_norm,
+        )
+        or re.search(r"\b(explicame|explica|que\s+significa)\b", query_norm)
         or "traduce" in query_norm
         or "traduccion" in query_norm
-        or query_norm.startswith("que significa")
     )
 
 
@@ -553,7 +635,7 @@ def _is_thanking_avi(query_norm: str, q_tokens: list[str]) -> bool:
     ts = set(q_tokens)
     if "gracias" not in query_norm and "agradec" not in query_norm:
         return False
-    if {"como", "digo", "dice", "decir", "traduce", "traduccion", "significa"} & ts:
+    if {"como", "digo", "dice", "decir", "traduce", "traduccion", "significa", "explicame", "explica"} & ts:
         return False
     return True
 
@@ -561,35 +643,156 @@ def _is_thanking_avi(query_norm: str, q_tokens: list[str]) -> bool:
 def _extract_lexical_target(query_norm: str) -> str | None:
     for pat in (
         r"como\s+digo\s+(.+?)(?:\s+en\s+nasa|\?|$)",
-        r"como\s+se\s+dice\s+(.+?)\s+en\s+nasa",
+        r"como\s+se\s+dice\s+(.+?)(?:\s+en\s+nasa|\?|$)",
         r"traduce\s+(.+?)\s+a\s+nasa",
+        r"(?:explicame|explica|que\s+significa)\s+(?:esta\s+)?(?:palabra|frase)?\s*(.+?)(?:\?|$)",
     ):
         m = re.search(pat, query_norm)
         if m:
             t = normalize_text(m.group(1).strip(" ?."))
-            if t and t not in ("esta frase", "esta palabra"):
+            if t and t not in ("esta frase", "esta palabra", "esta", ""):
                 return t
     if re.search(r"\bcomo\s+saludo\b", query_norm) or query_norm in ("saludo", "saludos"):
         return "saludo"
+    if re.search(r"\bcomo\s+me\s+despido\b", query_norm) or query_norm in ("despedida", "despedidas"):
+        return "despedida"
     return None
+
+
+_CHAT_TOPIC_REGEX: list[tuple[str, re.Pattern[str]]] = [
+    ("familia", re.compile(r"\bfamilia\b|\bparentesco\b|\bcasa\b.*\bfamilia\b")),
+    (
+        "despedida",
+        re.compile(
+            r"\bdespid|\bdesped\b|\badios\b|\bhasta\s+luego\b|\bnos\s+vemos\b|"
+            r"\bchao\b|\bchau\b|\bme\s+voy\b|\bcomo\s+me\s+despido\b|\bdespedidas?\b"
+        ),
+    ),
+    ("gracias", re.compile(r"\bgracias\b|\bagradec")),
+    (
+        "saludos",
+        re.compile(
+            r"\bsaludo|\bcomo\s+saludo\b|\bpresentarme\b|\bpresentacion\b|"
+            r"\bconocer\b|\bbuenos\s+dias\b|\bbuenas\s+tardes\b|\bbuenas\s+noches\b"
+        ),
+    ),
+    ("numeros", re.compile(r"\bnumeros?\b|\bcontar\b|\bcuenta\b|\bcifra\b")),
+    ("colores", re.compile(r"\bcolores?\b")),
+    ("animales", re.compile(r"\banimales?\b|\bmascota\b|\bperro\b|\bgato\b")),
+    ("ejemplo", re.compile(r"\bdame\s+un\s+ejemplo\b|\bun\s+ejemplo\b|\bejemplo\s+de\b")),
+    ("aprender", re.compile(r"\baprender\b|\baprendizaje\b|\bpracticar\b|\bestudiar\b")),
+]
+
+_CHAT_TOPIC_SEED_TOKENS: dict[str, tuple[str, ...]] = {
+    "saludos": ("saludo", "hola", "ma'g", "fxi'z", "ewcha"),
+    "familia": ("familia", "casa", "yaattewe"),
+    "gracias": ("agradecer", "agradecido", "wecha"),
+    "despedida": ("despedir", "saludar", "wecha", "hola"),
+    "numeros": ("numero", "contar", "uno", "dos"),
+    "colores": ("color", "rojo", "azul", "verde"),
+    "animales": ("animal", "perro", "gato"),
+    "ejemplo": ("ejemplo", "dialogo", "estudiante"),
+    "aprender": ("aprender", "practicar", "dialogo"),
+}
+
+_TOPIC_CURATED_FALLBACK: dict[str, list[str]] = {
+    "saludos": [
+        "• Ma'g fxi'z — Saludo basico",
+        "• Ma'w fxi'z — Saludo basico",
+        "• ewcha — ¡Hola! (saludando a un hombre)",
+        "• ewchacue — ¡Hola! (saludando a una mujer o a varias personas)",
+    ],
+    "gracias": [
+        "• wecha- / wecháa- — 1. estar agradecido, agradecer; 2. saludar, despedir, besar",
+    ],
+    "despedida": [
+        "• wecha- / wecháa- — 1. estar agradecido, agradecer; 2. saludar, despedir, besar",
+        "• ewcha — ¡Hola! (saludando a un hombre)",
+        "• Ma'g fxi'z — Saludo basico (también sirve para cerrar un encuentro con respeto)",
+    ],
+    "familia": [
+        "• yaattewe'sh — familia, los de la casa",
+    ],
+}
 
 
 def _detect_chat_topic(query_norm: str, q_tokens: list[str]) -> str | None:
-    ts = set(q_tokens)
-    if "familia" in query_norm or "parentesco" in query_norm:
-        return "familia"
-    if "despid" in query_norm or "desped" in query_norm or query_norm in ("despedidas", "despedida"):
-        return "despedida"
-    if ("saludo" in query_norm or re.search(r"\bcomo\s+saludo\b", query_norm)) and (
-        _is_asking_how(query_norm) or {"como", "cual", "dime", "ensena", "explica"} & ts
-    ):
-        return "saludos"
-    if "gracias" in query_norm and _is_asking_how(query_norm):
-        return "gracias"
+    if _is_thanking_avi(query_norm, q_tokens):
+        return None
+    # Traduccion lexical directa (perro, agua…): no forzar tema animales/numeros/colores.
+    if "en nasa yuwe" in query_norm or "a nasa yuwe" in query_norm:
+        thematic_only = ("saludos", "despedida", "familia", "gracias")
+    else:
+        thematic_only = None
+    for name, rx in _CHAT_TOPIC_REGEX:
+        if thematic_only is not None and name not in thematic_only:
+            continue
+        if not rx.search(query_norm):
+            continue
+        if name == "gracias" and not _is_asking_how(query_norm):
+            continue
+        if name == "saludos" and re.search(r"\bcomo\s+me\s+despido\b", query_norm):
+            continue
+        return name
     return None
 
 
-def _contexts_lexico_lines(contexts: list[dict], limit: int = 5, *, prefer_gloss: str = "") -> list[str]:
+def _vague_chat_guidance(query_norm: str) -> str | None:
+    """Chips del inicio que necesitan que el estudiante complete la idea."""
+    if query_norm in ("traduce esta frase", "traduce esta palabra"):
+        return (
+            "Claro. Escribe en español la frase completa que quieres pasar a Nasa Yuwe "
+            "(por ejemplo: «buenos días», «me llamo Ana», «gracias por tu ayuda») y te doy la forma en Nasa Yuwe."
+        )
+    if query_norm in ("como se dice", "como se dice?") or (
+        "como se dice" in query_norm and len(query_norm) < 22
+    ):
+        return (
+            "¿Qué palabra o frase quieres decir en Nasa Yuwe? Escríbela en español "
+            "(por ejemplo: agua, gracias, mi mamá) y te respondo con la forma del corpus."
+        )
+    if query_norm.startswith("explicame esta palabra") or query_norm.startswith("explica esta palabra"):
+        return (
+            "¿Cuál palabra quieres que te explique? Escríbela en español o en Nasa Yuwe "
+            "y te doy significado, uso y un ejemplo corto."
+        )
+    return None
+
+
+def _line_matches_topic(topic: str, nasa_yuwe: str, espanol: str) -> bool:
+    blob = normalize_text(f"{nasa_yuwe} {espanol}")
+    if not blob:
+        return False
+    if topic == "despedida":
+        if any(b in blob for b in ("despedaz", "pedaz", "padrino", "sombra", "llamas", "como,")):
+            return False
+        return any(g in blob for g in ("despedir", "saludar", "besar", "hola", "wecha", "saludo"))
+    if topic == "gracias":
+        return "agradec" in blob or (normalize_text(nasa_yuwe).startswith("wecha") and "agradec" in blob)
+    if topic == "saludos":
+        if "despedaz" in blob or "padrino" in blob:
+            return False
+        return any(g in blob for g in ("saludo", "hola", "ma'g", "ma'w", "ewcha", "ikuus", "pe't"))
+    if topic == "familia":
+        return "familia" in blob or "casa" in blob
+    if topic == "numeros":
+        return any(g in blob for g in ("numero", "contar", "uno", "dos", "tres", "cuatro", "cinco"))
+    if topic == "colores":
+        return "color" in blob or any(c in blob for c in ("rojo", "azul", "verde", "amarillo", "negro", "blanco"))
+    if topic == "animales":
+        return "animal" in blob or any(
+            a in blob for a in ("perro", "gato", "pajaro", "pez", "vaca", "caballo", "cuy")
+        )
+    return True
+
+
+def _contexts_lexico_lines(
+    contexts: list[dict],
+    limit: int = 5,
+    *,
+    prefer_gloss: str = "",
+    topic: str | None = None,
+) -> list[str]:
     prefer = normalize_text(prefer_gloss) if prefer_gloss else ""
     ordered = list(contexts)
     if prefer:
@@ -604,11 +807,25 @@ def _contexts_lexico_lines(contexts: list[dict], limit: int = 5, *, prefer_gloss
     lines = []
     seen = set()
     for ctx in ordered:
-        if (ctx.get("record_type") or "").strip().lower() != "lexico":
-            continue
+        rt = (ctx.get("record_type") or "").strip().lower()
         ny = (ctx.get("nasa_yuwe") or "").strip()
         es = (ctx.get("espanol") or "").strip()
-        if not ny or _looks_like_meta_spanish_gloss(es):
+        if topic and rt == "lexico" and not _line_matches_topic(topic, ny, es):
+            continue
+        if rt not in ("lexico", "dialogo"):
+            continue
+        if topic in ("numeros", "colores", "animales", "gracias", "saludos", "despedida", "familia") and rt == "dialogo":
+            continue
+        if rt == "lexico" and (not ny or _looks_like_meta_spanish_gloss(es)):
+            continue
+        if rt == "dialogo":
+            key = (ny[:80], es[:80])
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(f"• {es[:220]}")
+            if len(lines) >= limit:
+                break
             continue
         key = (ny, es)
         if key in seen:
@@ -618,6 +835,13 @@ def _contexts_lexico_lines(contexts: list[dict], limit: int = 5, *, prefer_gloss
         if len(lines) >= limit:
             break
     return lines
+
+
+def _topic_lines_or_fallback(contexts: list[dict], topic: str, *, prefer: str = "", limit: int = 5) -> list[str]:
+    lines = _contexts_lexico_lines(contexts, limit, prefer_gloss=prefer, topic=topic)
+    if lines:
+        return lines
+    return list(_TOPIC_CURATED_FALLBACK.get(topic, []))
 
 
 def compose_avi_chat_answer(
@@ -656,54 +880,93 @@ def compose_avi_chat_answer(
     topic = _detect_chat_topic(query_norm, q_tokens)
 
     if topic == "saludos":
-        lines = _contexts_lexico_lines(contexts, 6, prefer_gloss="saludo basico")
-        if lines:
-            return (
-                "Para saludar en Nasa Yuwe, estas formas aparecen en el material del curso:\n\n"
-                + "\n".join(lines)
-                + "\n\n"
-                "Consejo: Ma'g suele usarse hacia una persona considerada hombre; Ma'w hacia mujer. "
-                "Elige una sola frase, repítela en voz alta tres veces y luego úsala en una mini presentación."
-            )
+        lines = _topic_lines_or_fallback(contexts, "saludos", prefer="saludo basico", limit=6)
+        return (
+            "Para saludar o presentarte en Nasa Yuwe, estas formas aparecen en el material del curso:\n\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Consejo: Ma'g suele usarse hacia una persona considerada hombre; Ma'w hacia mujer. "
+            "Elige una sola frase, repítela en voz alta tres veces y luego úsala en una mini presentación."
+        )
 
     if topic == "gracias":
-        lines = [
-            ln
-            for ln in _contexts_lexico_lines(contexts, 6, prefer_gloss="agradec")
-            if "agradec" in ln.lower() or "wecha" in ln.lower()
-        ]
-        if not lines:
-            lines = [
-                "• wecha- / wecháa- — 1. estar agradecido, agradecer; 2. saludar, despedir, besar"
-            ]
-        lead = lines[0]
+        lines = _topic_lines_or_fallback(contexts, "gracias", prefer="agradec", limit=4)
         extra = ("\n\nOtras formas relacionadas:\n" + "\n".join(lines[1:])) if len(lines) > 1 else ""
         return (
             "Para agradecer o decir gracias, en el corpus aparece sobre todo el verbo de agradecimiento:\n\n"
-            f"{lead}{extra}\n\n"
+            f"{lines[0]}{extra}\n\n"
             "Puedes usarlo en contexto formal con calma. Si me dices si es para un adulto, un par o en clase, "
             "te sugiero una frase corta completa."
         )
 
     if topic == "despedida":
-        lines = _contexts_lexico_lines(contexts, 4)
-        body = "\n".join(lines) if lines else "• wecha- / wecháa- — saludar, despedir, besar (verbo del curso)"
+        lines = _topic_lines_or_fallback(contexts, "despedida", prefer="despedir", limit=5)
         return (
-            "Para despedirte, en el material del curso conviene apoyarte en verbos de saludo/despedida:\n\n"
-            f"{body}\n\n"
-            "Practica una despedida corta (por ejemplo, saludo + nombre + deseo de buen día). "
-            "Si quieres, escríbeme tu despedida en español y te ayudo a pasarla a Nasa Yuwe."
+            "Para despedirte en Nasa Yuwe, puedes apoyarte en estas formas del material del curso:\n\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Practica una despedida corta: saludo + agradecimiento breve + deseo de buen día. "
+            "Si escribes tu despedida en español, te ayudo a pasarla a Nasa Yuwe."
         )
 
     if topic == "familia":
-        lines = _contexts_lexico_lines(contexts, 5)
-        core = lines[0] if lines else pair_block()
+        lines = _topic_lines_or_fallback(contexts, "familia", prefer="familia", limit=5)
         more = ("\n\nTambién relacionado:\n" + "\n".join(lines[1:])) if len(lines) > 1 else ""
         return (
             "Qué bonito tema. Para hablar de familia, una palabra central en el corpus es:\n\n"
-            f"{core}{more}\n\n"
+            f"{lines[0]}{more}\n\n"
             "Puedes armar frases sencillas: mi familia, en mi casa, con mi mamá/papá… "
             "Dime quién quieres mencionar (mamá, papá, hermano, abuela) y buscamos la forma en Nasa Yuwe."
+        )
+
+    if topic == "numeros":
+        lines = _topic_lines_or_fallback(contexts, "numeros", prefer="numero", limit=6)
+        return (
+            "Para trabajar números en Nasa Yuwe, esto es lo que encontré en el corpus:\n\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Practica contando del 1 al 5 en voz alta. Si necesitas un número concreto, escríbelo en español."
+        )
+
+    if topic == "colores":
+        lines = _topic_lines_or_fallback(contexts, "colores", prefer="color", limit=6)
+        return (
+            "Estos colores y formas relacionadas aparecen en el material:\n\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Nómbrame un color en español si quieres profundizar en uno solo."
+        )
+
+    if topic == "animales":
+        lines = _topic_lines_or_fallback(contexts, "animales", prefer="animal", limit=6)
+        return (
+            "Sobre animales en Nasa Yuwe, el corpus tiene entradas como estas:\n\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Dime un animal concreto (perro, gato, pájaro…) y te doy la forma exacta."
+        )
+
+    if topic == "ejemplo":
+        lines = _contexts_lexico_lines(contexts, 3, topic="ejemplo")
+        if not lines:
+            lines = _topic_lines_or_fallback(contexts, "saludos", limit=2)
+        return (
+            "Te dejo un ejemplo tomado del material del curso para que lo uses como modelo:\n\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "Léelo en voz alta, luego cambia un solo detalle (nombre, lugar o persona) y vuelve a practicarlo."
+        )
+
+    if topic == "aprender":
+        lines = _contexts_lexico_lines(contexts, 4, prefer_gloss="aprender", topic="aprender")
+        if not lines:
+            lines = _contexts_lexico_lines(contexts, 3, topic=None)
+        body = "\n".join(lines) if lines else pair_block()
+        return (
+            "Buena actitud. Para aprender paso a paso, te sugiero empezar con vocabulario concreto:\n\n"
+            f"{body}\n\n"
+            "Elige un tema (saludos, familia, colores, animales) y practica tres palabras hoy. "
+            "Yo te guío frase por frase."
         )
 
     wants_hi = (
@@ -928,18 +1191,57 @@ class CorpusEngine:
                     add(i)
         elif topic == "despedida":
             for i, row in enumerate(self.rows):
-                esn = row.get("espanol_norm") or ""
+                row = self.rows[i]
                 if row.get("record_type") != "lexico":
                     continue
-                if "despedaz" in esn or "pedaz" in esn or "llamas" in esn:
+                esn = row.get("espanol_norm") or ""
+                ny = row.get("nasa_norm") or ""
+                if "despedaz" in esn or "pedaz" in esn or "llamas" in esn or "padrino" in esn:
                     continue
-                if "despedir" in esn or "despedida" in esn:
+                if "despedir" in esn or "despedida" in esn or (ny.startswith("wecha") and "saludar" in esn):
                     add(i)
             for i in self._doc_ids_for_category("saludos"):
                 row = self.rows[i]
-                if row.get("record_type") == "lexico":
+                if row.get("record_type") == "lexico" and not _looks_like_meta_spanish_gloss(row.get("espanol", "")):
                     add(i)
-        return out[:16]
+            for i, row in enumerate(self.rows):
+                if row.get("record_type") == "lexico" and "hola" in (row.get("espanol_norm") or ""):
+                    add(i)
+        elif topic == "numeros":
+            for cat in ("numeros", "vocabulario_general"):
+                for i in self._doc_ids_for_category(cat):
+                    if self.rows[i].get("record_type") == "lexico":
+                        add(i)
+            for i, row in enumerate(self.rows):
+                esn = row.get("espanol_norm") or ""
+                if row.get("record_type") == "lexico" and (
+                    "numero" in esn or "contar" in esn or "uno" in esn or "dos" in esn
+                ):
+                    add(i)
+        elif topic == "colores":
+            for cat in ("colores", "vocabulario_general"):
+                for i in self._doc_ids_for_category(cat):
+                    if self.rows[i].get("record_type") == "lexico":
+                        add(i)
+            for i, row in enumerate(self.rows):
+                esn = row.get("espanol_norm") or ""
+                if row.get("record_type") == "lexico" and (
+                    "color" in esn or "rojo" in esn or "azul" in esn or "verde" in esn
+                ):
+                    add(i)
+        elif topic == "animales":
+            for i in self._doc_ids_for_category("animales"):
+                if self.rows[i].get("record_type") == "lexico":
+                    add(i)
+        elif topic in ("ejemplo", "aprender"):
+            for i, row in enumerate(self.rows):
+                if row.get("record_type") == "dialogo":
+                    add(i)
+            for i, row in enumerate(self.rows):
+                esn = row.get("espanol_norm") or ""
+                if row.get("record_type") == "lexico" and "aprender" in esn:
+                    add(i)
+        return out[:20]
 
     def _score(self, q_tokens, doc_id, pedagogical_intent=False):
         d_tokens = self.doc_tokens[doc_id]
@@ -1005,9 +1307,21 @@ class CorpusEngine:
             self.metrics["cache_hit"] += 1
             return cached
 
+        vague = _vague_chat_guidance(query_norm)
+        if vague:
+            data = {
+                "answer": vague,
+                "contexts": [],
+                "meta": {"cache_hit": False, "vague_prompt": True},
+            }
+            self.cache[query_norm] = {"time": time.time(), "data": data}
+            return data
+
         q_tokens = tokenize(query_norm)
         asking_how = _is_asking_how(query_norm)
         chat_topic = _detect_chat_topic(query_norm, q_tokens)
+        if chat_topic:
+            q_tokens = list(set(q_tokens) | set(_CHAT_TOPIC_SEED_TOKENS.get(chat_topic, ())))
         translation_intent = asking_how or (
             ("dice" in q_tokens)
             or ("traduce" in q_tokens)
@@ -1082,7 +1396,9 @@ class CorpusEngine:
                 continue
             if chat_topic == "saludos" and rt in {"qa", "dialogo"}:
                 continue
-            if chat_topic in {"gracias", "familia", "despedida"} and rt == "qa":
+            if chat_topic in {"gracias", "familia", "despedida", "numeros", "colores", "animales"} and rt == "qa":
+                continue
+            if chat_topic == "ejemplo" and rt == "qa":
                 continue
             if direct_target and row_doc.get("record_type", "").strip().lower() == "lexico":
                 # boost direct match in spanish gloss
@@ -1098,6 +1414,14 @@ class CorpusEngine:
                 sc *= 1.45
             if chat_topic == "despedida" and "despedir" in (row_doc.get("espanol_norm") or ""):
                 sc *= 1.4
+            if chat_topic == "numeros" and "numero" in (row_doc.get("espanol_norm") or ""):
+                sc *= 1.35
+            if chat_topic == "colores" and "color" in (row_doc.get("espanol_norm") or ""):
+                sc *= 1.35
+            if chat_topic == "animales" and row_doc.get("categoria", "").lower() == "animales":
+                sc *= 1.4
+            if chat_topic in ("ejemplo", "aprender") and rt == "dialogo":
+                sc *= 1.3
             if sc > 0:
                 scored.append((doc_id, sc))
         if not scored and chat_topic:
@@ -1386,7 +1710,7 @@ class CorpusEngine:
                     "espanol": es,
                 }
             else:
-                img = fetch_commons_image(es, cat_norm)
+                img = fetch_commons_image(es, cat_norm, str(row.get("id") or ""))
                 img_ok = bool(img.get("ok")) if isinstance(img, dict) else False
                 q = {
                     "id": f"{cat_norm}-i-{qid}",
@@ -4582,10 +4906,43 @@ class AVIHandler(BaseHTTPRequestHandler):
             result = ENGINE.dialogues(cat, limit=limit)
             self._send_json(result)
             return
+        if route.startswith("/api/corpus-img/"):
+            rel = route[len("/api/corpus-img/") :].lstrip("/")
+            if not rel or ".." in rel:
+                self.send_error(400, "Bad path")
+                return
+            rel = unquote(rel).replace("\\", "/").lstrip("/")
+            try:
+                p = (SOLO_IMG_DIR / rel).resolve()
+                root = SOLO_IMG_DIR.resolve()
+            except OSError:
+                self.send_error(500)
+                return
+            if not str(p).startswith(str(root)) or not p.is_file():
+                self.send_error(404, "PNG no encontrado")
+                return
+            if p.suffix.lower() != ".png":
+                self.send_error(404, "Solo PNG")
+                return
+            data = p.read_bytes()
+            acao = _cors_allow_origin(self)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            if acao:
+                self.send_header("Access-Control-Allow-Origin", acao)
+                if CORS_ALLOWED_ORIGINS:
+                    self.send_header("Vary", "Origin")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if route == "/api/image":
             q = parse_qs(parsed.query).get("q", [""])[0]
             cat = parse_qs(parsed.query).get("category", [""])[0]
-            self._send_json(fetch_commons_image(q, cat))
+            tid = (parse_qs(parsed.query).get("id") or [""])[0]
+            self._send_json(fetch_commons_image(q, cat, tid))
             return
 
         self.send_error(404, "Route not found")

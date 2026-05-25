@@ -2,6 +2,9 @@ import { Component, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import { initFirebase } from './firebase.js'
+
+initFirebase()
 
 class RootErrorBoundary extends Component {
   constructor(props) {

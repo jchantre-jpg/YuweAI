@@ -6,10 +6,32 @@ SI VES "Error 501" al iniciar sesion:
   Desde la carpeta avi_webapp ejecuta:  python server.py
   y abre en el navegador:  http://127.0.0.1:8090/
 
-Contraseña para los tres usuarios: AviDemo2026!
+Contraseña para las cuentas base (estudiante / docente / admin): AviDemo2026!
 
   estudiante.demo@nasayuwe.local  (estudiante)
   docente.demo@nasayuwe.local  (docente)
   admin.demo@nasayuwe.local  (administrador)
 
 Se crean solas la primera vez que inicias server.py (excepto si AVI_SKIP_DEMO_USERS=1).
+
+--- Docentes con panel lleno (grupos, alumnos, actividades) ---
+Contraseña (las 3 cuentas docente): YuweDocente2026!
+  docente.ana@nasayuwe.local  (Ana López, docente)
+  docente.carlos@nasayuwe.local  (Carlos Becerra, docente)
+  docente.lucia@nasayuwe.local  (Lucía Tunque, docente)
+
+Alumnos solo para esos grupos (contraseña AviDemo2026!, misma que estudiante.demo):
+  alumno.panel01@nasayuwe.local  (Panel Alumno 01)
+  alumno.panel02@nasayuwe.local  (Panel Alumno 02)
+  alumno.panel03@nasayuwe.local  (Panel Alumno 03)
+  alumno.panel04@nasayuwe.local  (Panel Alumno 04)
+  alumno.panel05@nasayuwe.local  (Panel Alumno 05)
+  alumno.panel06@nasayuwe.local  (Panel Alumno 06)
+  alumno.panel07@nasayuwe.local  (Panel Alumno 07)
+  alumno.panel08@nasayuwe.local  (Panel Alumno 08)
+  alumno.panel09@nasayuwe.local  (Panel Alumno 09)
+  alumno.panel10@nasayuwe.local  (Panel Alumno 10)
+  alumno.panel11@nasayuwe.local  (Panel Alumno 11)
+  alumno.panel12@nasayuwe.local  (Panel Alumno 12)
+
+Los datos de grupos/actividades se insertan al arrancar el servidor (una vez por docente, si aún no tenían actividades semilla).

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getDictionary } from './api'
+import { getDictionary, getDictionaryFull, getStats } from './api'
 import { examplePhrases, phoneticHint, speakText } from './corpusUtils'
 import { DictionaryTermImage } from './dictionaryTerm'
 import {
@@ -46,6 +46,86 @@ function frequencyTier(id) {
 
 const CATEGORY_ROW_ICONS = [Sprout, UsersRound, Leaf, BookOpen, MapPin]
 
+function categoryMatchesRow(rowCat, slug) {
+  const a = String(rowCat || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+  const b = String(slug || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+  if (!b || b === 'todas') return true
+  if (a === b) return true
+  if (b === 'comida' && (a === 'alimentos' || a === 'frutas_verduras' || a === 'comida')) return true
+  return false
+}
+
+/** Una fila del listado (termino + categoria semantica para filtros). */
+function rowFromLexTerm(term, categoryTag) {
+  const row = {
+    id: term.id,
+    nasa_yuwe: term.nasa_yuwe,
+    espanol: term.espanol,
+    fuente_nombre: term.fuente_nombre,
+    categoria: term.categoria || '',
+  }
+  const cat = String(categoryTag ?? term.categoria ?? 'general').trim() || 'general'
+  return { term: row, category: cat }
+}
+
+/** Intenta /api/dictionary/full con topes decrecientes (evita timeout en produccion). */
+async function fetchFullLexiconLadder() {
+  for (const lim of [12000, 8000, 5000, 3000, 1500]) {
+    try {
+      const pack = await getDictionaryFull(lim)
+      const terms = pack.terms || []
+      if (terms.length) {
+        return terms.map((term) => rowFromLexTerm(term, String(term.categoria || 'general').trim() || 'general'))
+      }
+    } catch {
+      /* siguiente tope */
+    }
+  }
+  return []
+}
+
+/** Une varias categorias; cada peticion aislada para que un fallo no vacie todo el diccionario. */
+async function mergeCategoryChunks(catList, perCatLimit) {
+  const uniq = [...new Set(catList.map((c) => String(c || '').trim()).filter(Boolean))]
+  if (!uniq.length) return []
+  const chunks = await Promise.all(
+    uniq.map((c) =>
+      getDictionary(c, perCatLimit)
+        .then((d) => (d.terms || []).map((term) => rowFromLexTerm(term, c)))
+        .catch(() => []),
+    ),
+  )
+  const seen = new Set()
+  const out = []
+  for (const part of chunks) {
+    for (const row of part) {
+      const k = `${row.term.id}-${row.category}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(row)
+    }
+  }
+  return out
+}
+
+function dedupeCatalogRows(a, b) {
+  const seen = new Set(a.map((r) => `${r.term.id}-${r.category}`))
+  const out = [...a]
+  for (const row of b) {
+    const k = `${row.term.id}-${row.category}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(row)
+  }
+  return out
+}
+
 export function StudentDictionaryRoute({
   t,
   notify,
@@ -56,15 +136,10 @@ export function StudentDictionaryRoute({
   preferredTab,
   onPreferredTabConsumed,
 }) {
-  const fallbackCats = useMemo(() => {
-    try {
-      const raw = JSON.parse(window.localStorage.getItem('avi-last-categories') || '[]')
-      const base = Array.isArray(raw) && raw.length ? raw : ['comida', 'alimentos', 'animales', 'familia_personas', 'numeros']
-      return ['comida', ...base.filter((c) => c !== 'comida')].slice(0, 40)
-    } catch {
-      return ['comida', 'alimentos', 'animales', 'familia_personas', 'numeros']
-    }
-  }, [])
+  const fallbackCats = useMemo(
+    () => ['comida', 'alimentos', 'animales', 'familia_personas', 'numeros'],
+    [],
+  )
   const catOptions = appCategories?.length ? appCategories : fallbackCats
 
   const [catalog, setCatalog] = useState([])
@@ -91,28 +166,51 @@ export function StudentDictionaryRoute({
     async function loadCatalog() {
       setLoading(true)
       try {
-        const chunks = await Promise.all(
-          catOptions.map((c) =>
-            getDictionary(c, 96).then((d) =>
-              (d.terms || []).map((term) => ({
-                term,
-                category: c,
-              })),
-            ),
-          ),
-        )
-        if (cancelled) return
-        const seen = new Set()
-        const merged = []
-        for (const part of chunks) {
-          for (const row of part) {
-            const k = `${row.term.id}-${row.category}`
-            if (seen.has(k)) continue
-            seen.add(k)
-            merged.push(row)
+        let merged = await fetchFullLexiconLadder()
+
+        if (!merged.length) {
+          let statsCats = []
+          try {
+            const st = await getStats()
+            const dist = st?.category_distribution || {}
+            statsCats = Object.keys(dist)
+              .filter((k) => typeof k === 'string' && k.trim() && (dist[k] || 0) > 0)
+              .sort((a, b) => (dist[b] || 0) - (dist[a] || 0))
+          } catch {
+            /* ignore */
+          }
+          const mergedCats = []
+          const pushCat = (c) => {
+            const s = String(c || '').trim()
+            if (!s || mergedCats.includes(s)) return
+            mergedCats.push(s)
+          }
+          for (const c of statsCats.slice(0, 28)) pushCat(c)
+          for (const c of catOptions) pushCat(c)
+          const fetchCats = mergedCats.length ? mergedCats : catOptions
+          const perCatLimit = fetchCats.length > 14 ? 220 : 500
+          merged = await mergeCategoryChunks(fetchCats, perCatLimit)
+        }
+
+        if (!cancelled && merged.length < 12) {
+          try {
+            const st = await getStats()
+            const dist = st?.category_distribution || {}
+            const allCats = Object.keys(dist)
+              .filter((k) => typeof k === 'string' && k.trim() && (dist[k] || 0) > 0)
+              .sort((a, b) => (dist[b] || 0) - (dist[a] || 0))
+            const extra = await mergeCategoryChunks(allCats.slice(0, 24), 0)
+            merged = dedupeCatalogRows(merged, extra)
+          } catch {
+            /* ignore */
           }
         }
+
+        if (cancelled) return
         setCatalog(merged)
+        if (!cancelled && merged.length === 0) {
+          notify(t('dict.loadEmpty'))
+        }
       } catch (e) {
         if (!cancelled) {
           notify(e.message || String(e))
@@ -126,11 +224,14 @@ export function StudentDictionaryRoute({
     return () => {
       cancelled = true
     }
-  }, [catFingerprint, notify])
+  }, [catFingerprint, notify, t])
 
   const filtered = useMemo(() => {
     let out = catalog
-    if (semanticSlug !== 'todas') out = out.filter((r) => r.category === semanticSlug)
+    if (semanticSlug !== 'todas') {
+      const narrowed = out.filter((r) => categoryMatchesRow(r.category, semanticSlug))
+      out = narrowed.length ? narrowed : out
+    }
     const q = filterQuery.trim().toLowerCase()
     if (q) {
       out = out.filter((r) => {
@@ -438,7 +539,15 @@ export function StudentDictionaryRoute({
         <div className="yuwe-dict-main">
           <div className="yuwe-dict-toolbar">
             <p className="yuwe-dict-count">
-              <strong>{filtered.length}</strong> palabras encontradas
+              {filtered.length === 1 ? (
+                <>
+                  <strong>1</strong> {t('dict.foundCountOne')}
+                </>
+              ) : (
+                <>
+                  <strong>{filtered.length}</strong> {t('dict.foundCountMany')}
+                </>
+              )}
             </p>
             <div className="yuwe-dict-toolbar-tools">
               <div className="yuwe-dict-toggle" role="group" aria-label="Vista">

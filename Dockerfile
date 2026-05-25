@@ -46,6 +46,9 @@ RUN mkdir -p /app/corpus/data \
 
 ENV AVI_CORPUS_PATH=/app/corpus/data/corpus_bilingue_v5.csv
 
+# Léxico visual: rutas (JSON/JSONL) y PNG si están en el contexto de build (en Git suelen ir solo metadatos).
+COPY corpus/generadas-img-ia-solo/ /app/corpus/generadas-img-ia-solo/
+
 RUN mkdir -p /app/web/data \
     && chown -R user:user /app
 

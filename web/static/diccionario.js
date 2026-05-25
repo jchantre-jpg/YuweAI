@@ -35,11 +35,12 @@ function buildColorSwatchImage(word) {
   };
 }
 
-async function getFreeImage(word, category) {
+async function getFreeImage(word, category, termId = "") {
   const baseWord = (word || "").toLowerCase().trim();
   const cat = (category || "").toLowerCase().trim();
-  const key = `${baseWord}|${cat}`;
-  if (!key) return { image_url: fallbackImage("Nasa Yuwe"), source_url: "#", license: "N/A" };
+  const tid = (termId || "").trim();
+  const key = `${baseWord}|${cat}|${tid}`;
+  if (!key.replace(/\|/g, "")) return { image_url: fallbackImage("Nasa Yuwe"), source_url: "#", license: "N/A" };
   if (imageCache.has(key)) return imageCache.get(key);
   if (cat === "colores") {
     const swatch = buildColorSwatchImage(baseWord);
@@ -49,7 +50,10 @@ async function getFreeImage(word, category) {
     }
   }
   try {
-    const data = await fetch(`/api/image?q=${encodeURIComponent(baseWord)}&category=${encodeURIComponent(cat)}`).then((r) => r.json());
+    const idq = tid ? `&id=${encodeURIComponent(tid)}` : "";
+    const data = await fetch(
+      `/api/image?q=${encodeURIComponent(baseWord)}&category=${encodeURIComponent(cat)}${idq}`,
+    ).then((r) => r.json());
     const result = data.ok && data.image_url
       ? data
       : { image_url: fallbackImage(baseWord), source_url: "#", license: "placeholder" };
@@ -71,7 +75,7 @@ async function renderLesson(data) {
 
   const termsWithImages = await Promise.all(
     data.terms.map(async (t) => {
-      const img = await getFreeImage(t.espanol, data.category);
+      const img = await getFreeImage(t.espanol, data.category, t.id || "");
       return { ...t, img };
     })
   );

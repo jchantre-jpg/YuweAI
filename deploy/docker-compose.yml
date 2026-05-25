@@ -1,0 +1,25 @@
+# Uso (desde esta carpeta YuweAI/deploy):
+#   docker compose build
+#   docker compose up -d
+#
+# El contexto de build es la raíz del repo (padre del padre de deploy):
+#   YuweAI + corpus deben existir ahí.
+services:
+  avi:
+    build:
+      context: ../..
+      dockerfile: YuweAI/deploy/Dockerfile
+    ports:
+      - "8090:8090"
+    volumes:
+      # SQLite y datos de auth persistentes entre reinicios
+      - avi_auth_data:/app/web/data
+    restart: unless-stopped
+    environment:
+      - TZ=America/Bogota
+      # Opcional en producción (lista separada por comas):
+      # - AVI_CORS_ORIGINS=https://tudominio.com
+      # - AVI_SKIP_DEMO_USERS=1
+
+volumes:
+  avi_auth_data:
