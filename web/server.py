@@ -238,6 +238,17 @@ ESP_STOP_QUERY = {
     "le", "les", "con", "por", "para", "se", "su", "sus", "al", "como", "más", "mas",
 }
 
+# Preguntas al chat AVI: quitar marcadores para quedarse con la palabra/frase buscada.
+CHAT_QUERY_STOP = ESP_STOP_QUERY | {
+    "que", "cual", "cuales", "digo", "dice", "decir", "significa", "significado", "es", "son",
+    "esta", "este", "esto", "hay", "tiene", "explicame", "explica", "traduce", "traduccion",
+    "busca", "buscar", "pregunta", "pregunto", "avi", "yuwe", "nasa", "quiero", "hablar",
+    "sobre", "dame", "dime", "ayuda", "ayudame", "favor", "aprender", "aprendizaje",
+    "practicar", "estudiar", "palabra", "frase", "me", "te", "mi", "tu", "nos", "les",
+    "cuantos", "cuantas", "muchos", "muchas", "todo", "toda", "todos", "todas", "asi",
+    "hoy", "ahora", "bien", "muy", "tan", "tambien", "llamo", "nombre", "cuenta", "cifra",
+}
+
 NUMERO_EN_PALABRA = {
     "cero": "0", "uno": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5", "seis": "6",
     "siete": "7", "ocho": "8", "nueve": "9", "diez": "10", "once": "11", "doce": "12",
@@ -640,22 +651,113 @@ def _is_thanking_avi(query_norm: str, q_tokens: list[str]) -> bool:
     return True
 
 
-def _extract_lexical_target(query_norm: str) -> str | None:
+def _content_tokens_from_query(q_tokens: list[str]) -> list[str]:
+    return [t for t in q_tokens if t not in CHAT_QUERY_STOP and len(t) >= 2]
+
+
+def _lexico_doc_indices(rows: list[dict], term: str, *, limit: int = 14) -> list[int]:
+    """Indices de filas lexico que coinciden con una glosa o forma (como dictionary_search)."""
+    ql = normalize_text(term)
+    if not ql or len(ql) < 2:
+        return []
+    matches: list[tuple[int, int]] = []
+    for i, row in enumerate(rows):
+        if row.get("record_type") != "lexico":
+            continue
+        es = row.get("espanol_norm") or ""
+        ny = row.get("nasa_norm") or ""
+        score = 0
+        if ql == es or ql == ny:
+            score = 100
+        elif es == ql or ny == ql:
+            score = 100
+        elif ql in es or ql in ny:
+            score = 80
+        elif es.startswith(ql) or ny.startswith(ql):
+            score = 70
+        elif any(ql == part for part in es.split() if len(ql) >= 2):
+            score = 65
+        elif any(ql in part for part in es.split() if len(ql) >= 3):
+            score = 55
+        if score:
+            matches.append((score, i))
+    matches.sort(key=lambda x: x[0], reverse=True)
+    return [i for _, i in matches[:limit]]
+
+
+def _prioritize_chat_contexts(
+    contexts: list[dict],
+    *,
+    direct_target: str = "",
+    translation_intent: bool = False,
+) -> list[dict]:
+    if not contexts:
+        return contexts
+    dt = normalize_text(direct_target or "")
+
+    def rank_key(ctx: dict) -> tuple[int, float]:
+        rt = (ctx.get("record_type") or "").strip().lower()
+        es = normalize_text(ctx.get("espanol") or "")
+        ny = normalize_text(ctx.get("nasa_yuwe") or "")
+        base = float(ctx.get("score") or 0)
+        penalty = 0
+        if rt == "qa":
+            penalty += 80
+        if _looks_like_meta_spanish_gloss(ctx.get("espanol") or ""):
+            penalty += 60
+        if rt == "dialogo" and (translation_intent or dt):
+            penalty += 25
+        if dt and rt == "lexico":
+            if es == dt or ny == dt:
+                penalty -= 250
+            elif es.startswith(dt + " ") or es.split()[0:1] == [dt]:
+                penalty -= 200
+            elif dt in es.split():
+                penalty -= 150
+            elif dt in es:
+                penalty -= 100
+        if translation_intent and rt == "lexico" and not _looks_like_meta_spanish_gloss(ctx.get("espanol") or ""):
+            penalty -= 15
+        return (penalty, -base)
+
+    return sorted(contexts, key=rank_key)
+
+
+def _extract_lexical_target(query_norm: str, q_tokens: list[str] | None = None) -> str | None:
     for pat in (
         r"como\s+digo\s+(.+?)(?:\s+en\s+nasa|\?|$)",
         r"como\s+se\s+dice\s+(.+?)(?:\s+en\s+nasa|\?|$)",
         r"traduce\s+(.+?)\s+a\s+nasa",
-        r"(?:explicame|explica|que\s+significa)\s+(?:esta\s+)?(?:palabra|frase)?\s*(.+?)(?:\?|$)",
+        r"traduccion\s+de\s+(.+?)(?:\?|$)",
+        r"significado\s+de\s+(.+?)(?:\?|$)",
+        r"que\s+significa\s+(.+?)(?:\?|$)",
+        r"que\s+es\s+(.+?)(?:\s+en\s+nasa|\?|$)",
+        r"(?:explicame|explica)\s+(?:esta\s+)?(?:palabra|frase)?\s*(.+?)(?:\?|$)",
+        r"(?:busca|buscar)\s+(?:la\s+)?palabra\s+(.+?)(?:\?|$)",
     ):
         m = re.search(pat, query_norm)
         if m:
             t = normalize_text(m.group(1).strip(" ?."))
-            if t and t not in ("esta frase", "esta palabra", "esta", ""):
+            t = re.sub(r"^(la|el)\s+palabra\s+", "", t).strip()
+            if t and t not in ("esta frase", "esta palabra", "esta", "", "…", "..."):
                 return t
     if re.search(r"\bcomo\s+saludo\b", query_norm) or query_norm in ("saludo", "saludos"):
         return "saludo"
     if re.search(r"\bcomo\s+me\s+despido\b", query_norm) or query_norm in ("despedida", "despedidas"):
         return "despedida"
+    tokens = q_tokens if q_tokens is not None else tokenize(query_norm)
+    content = _content_tokens_from_query(tokens)
+    if len(content) == 1:
+        if content[0] in ("gracias", "adios", "chao", "chau") and not _is_asking_how(query_norm):
+            return None
+        return content[0]
+    if len(content) >= 2 and (
+        _is_asking_how(query_norm)
+        or "significa" in query_norm
+        or "significado" in query_norm
+        or query_norm.startswith("traduce ")
+    ):
+        return " ".join(content[-3:])
     return None
 
 
@@ -678,7 +780,7 @@ _CHAT_TOPIC_REGEX: list[tuple[str, re.Pattern[str]]] = [
     ),
     ("numeros", re.compile(r"\bnumeros?\b|\bcontar\b|\bcuenta\b|\bcifra\b")),
     ("colores", re.compile(r"\bcolores?\b")),
-    ("animales", re.compile(r"\banimales?\b|\bmascota\b|\bperro\b|\bgato\b")),
+    ("animales", re.compile(r"\banimales?\b|\bmascota\b|\bayudame\s+con\s+animales\b")),
     ("ejemplo", re.compile(r"\bdame\s+un\s+ejemplo\b|\bun\s+ejemplo\b|\bejemplo\s+de\b")),
     ("aprender", re.compile(r"\baprender\b|\baprendizaje\b|\bpracticar\b|\bestudiar\b")),
 ]
@@ -744,13 +846,19 @@ def _vague_chat_guidance(query_norm: str) -> str | None:
             "Claro. Escribe en español la frase completa que quieres pasar a Nasa Yuwe "
             "(por ejemplo: «buenos días», «me llamo Ana», «gracias por tu ayuda») y te doy la forma en Nasa Yuwe."
         )
-    if query_norm in ("como se dice", "como se dice?") or (
-        "como se dice" in query_norm and len(query_norm) < 22
-    ):
+    if query_norm in ("como se dice", "como se dice?"):
         return (
             "¿Qué palabra o frase quieres decir en Nasa Yuwe? Escríbela en español "
             "(por ejemplo: agua, gracias, mi mamá) y te respondo con la forma del corpus."
         )
+    m_cs = re.search(r"^como\s+se\s+dice\s*(.+?)\s*\??$", query_norm)
+    if m_cs:
+        rest = normalize_text(m_cs.group(1).strip(" ?."))
+        if not rest or rest in ("", "…", "..."):
+            return (
+                "¿Qué palabra o frase quieres decir en Nasa Yuwe? Escríbela en español "
+                "(por ejemplo: agua, gracias, mi mamá) y te respondo con la forma del corpus."
+            )
     if query_norm.startswith("explicame esta palabra") or query_norm.startswith("explica esta palabra"):
         return (
             "¿Cuál palabra quieres que te explique? Escríbela en español o en Nasa Yuwe "
@@ -850,13 +958,19 @@ def compose_avi_chat_answer(
     contexts: list[dict],
     *,
     translation_intent: bool,
+    direct_target: str = "",
 ) -> str:
     """
     Texto del tutor AVI para la vista 'Conversar': tono cercano, sin exponer metadatos tecnicos
     (fuente sintetica, tipo de registro, etc.) en el cuerpo del mensaje.
     """
     ts = set(q_tokens)
-    best = contexts[0]
+    contexts = _prioritize_chat_contexts(
+        contexts,
+        direct_target=direct_target,
+        translation_intent=translation_intent,
+    )
+    best = contexts[0] if contexts else {}
     es = (best.get("espanol") or "").strip()
     ny = (best.get("nasa_yuwe") or "").strip()
     rt = (best.get("record_type") or "").strip().lower()
@@ -878,6 +992,19 @@ def compose_avi_chat_answer(
         )
 
     topic = _detect_chat_topic(query_norm, q_tokens)
+    dt = normalize_text(direct_target or "")
+
+    if dt and not topic:
+        lines = _contexts_lexico_lines(contexts, 4, prefer_gloss=dt)
+        if lines:
+            label = direct_target or dt
+            return (
+                f"Claro. Esto es lo que encontré para «{label}» en el corpus:\n\n"
+                + "\n".join(lines)
+                + "\n\n"
+                "Practica la forma en Nasa Yuwe en voz alta tres veces; luego úsala en una frase corta. "
+                "Si quieres otro matiz (formal, con niños, en clase), dímelo."
+            )
 
     if topic == "saludos":
         lines = _topic_lines_or_fallback(contexts, "saludos", prefer="saludo basico", limit=6)
@@ -1105,7 +1232,7 @@ class CorpusEngine:
 
                 self.rows.append(
                     {
-                        "idx": i,
+                        "idx": len(self.rows),
                         "id": rid,
                         "nasa_yuwe": nasa,
                         "espanol": esp,
@@ -1318,6 +1445,18 @@ class CorpusEngine:
             return data
 
         q_tokens = tokenize(query_norm)
+        if _is_thanking_avi(query_norm, q_tokens):
+            data = {
+                "answer": (
+                    "De nada, con gusto.\n\n"
+                    "Me alegra acompañarte. Cuando quieras, seguimos con otra palabra o tema "
+                    "(saludos, familia, numeros, colores…)."
+                ),
+                "contexts": [],
+                "meta": {"cache_hit": False, "thanks_only": True},
+            }
+            self.cache[query_norm] = {"time": time.time(), "data": data}
+            return data
         asking_how = _is_asking_how(query_norm)
         chat_topic = _detect_chat_topic(query_norm, q_tokens)
         if chat_topic:
@@ -1349,8 +1488,7 @@ class CorpusEngine:
             for i in self._topic_doc_indices(chat_topic):
                 cand.add(i)
 
-        # direct lexical optimization for "como se dice X en nasa yuwe"
-        direct_target = _extract_lexical_target(query_norm)
+        direct_target = _extract_lexical_target(query_norm, q_tokens) or ""
         if not direct_target:
             m = re.search(r"dice (.+?) en nasa yuwe", query_norm)
             if m:
@@ -1359,9 +1497,37 @@ class CorpusEngine:
             m2 = re.search(r"traduce (.+?) a nasa yuwe", query_norm)
             if m2:
                 direct_target = normalize_text(m2.group(1))
+        if direct_target:
+            for i in _lexico_doc_indices(self.rows, direct_target):
+                cand.add(i)
+            if not cand:
+                content = _content_tokens_from_query(q_tokens)
+                if content:
+                    for i in _lexico_doc_indices(self.rows, content[0]):
+                        cand.add(i)
         if not cand and chat_topic:
             for i in self._topic_doc_indices(chat_topic):
                 cand.add(i)
+        if not cand:
+            lookup_q = direct_target or " ".join(_content_tokens_from_query(q_tokens)) or query_norm
+            ds = self.dictionary_search(lookup_q)
+            found = ds.get("found")
+            if found:
+                fid = found.get("id")
+                for i, row in enumerate(self.rows):
+                    if row.get("id") == fid:
+                        cand.add(i)
+                        if not direct_target:
+                            direct_target = normalize_text(found.get("espanol") or lookup_q)
+                        break
+            elif ds.get("suggestions"):
+                top = ds["suggestions"][0]
+                es_top = normalize_text(top.get("espanol") or "")
+                for i, row in enumerate(self.rows):
+                    if row.get("record_type") == "lexico" and (row.get("espanol_norm") or "") == es_top:
+                        cand.add(i)
+                        direct_target = es_top
+                        break
         if not cand:
             if _is_thanking_avi(query_norm, q_tokens):
                 data = {
@@ -1391,7 +1557,7 @@ class CorpusEngine:
         for doc_id in cand:
             row_doc = self.rows[doc_id]
             rt = row_doc.get("record_type", "").strip().lower()
-            if translation_intent and rt in {"qa", "dialogo"}:
+            if (translation_intent or direct_target) and rt in {"qa", "dialogo"}:
                 # avoid generated conversational records when user asks direct lexical translation
                 continue
             if chat_topic == "saludos" and rt in {"qa", "dialogo"}:
@@ -1401,9 +1567,20 @@ class CorpusEngine:
             if chat_topic == "ejemplo" and rt == "qa":
                 continue
             if direct_target and row_doc.get("record_type", "").strip().lower() == "lexico":
-                # boost direct match in spanish gloss
-                if row_doc.get("espanol_norm") == direct_target:
+                esn = row_doc.get("espanol_norm") or ""
+                nyn = row_doc.get("nasa_norm") or ""
+                dt = normalize_text(direct_target)
+                if esn == dt or nyn == dt:
                     scored.append((doc_id, 999.0))
+                    continue
+                if esn.startswith(dt + " ") or (esn.split()[:1] == [dt]):
+                    scored.append((doc_id, 950.0))
+                    continue
+                if dt in esn.split():
+                    scored.append((doc_id, 900.0))
+                    continue
+                if dt in esn or dt in nyn:
+                    scored.append((doc_id, 850.0))
                     continue
             sc = self._score(q_tokens, doc_id, pedagogical_intent=pedagogical_intent)
             if chat_topic == "saludos" and rt == "lexico":
@@ -1426,6 +1603,9 @@ class CorpusEngine:
                 scored.append((doc_id, sc))
         if not scored and chat_topic:
             for i in self._topic_doc_indices(chat_topic)[: max(top_k, 5)]:
+                scored.append((i, 1.0))
+        if not scored and direct_target:
+            for i in _lexico_doc_indices(self.rows, direct_target)[: max(top_k, 5)]:
                 scored.append((i, 1.0))
         scored.sort(key=lambda x: x[1], reverse=True)
         mmr_selected = self._mmr(scored, top_k=top_k, lambda_param=0.75)
@@ -1451,11 +1631,17 @@ class CorpusEngine:
 
         best = contexts[0] if contexts else None
         if best:
+            contexts = _prioritize_chat_contexts(
+                contexts,
+                direct_target=direct_target,
+                translation_intent=translation_intent,
+            )
             answer = compose_avi_chat_answer(
                 query_norm,
                 q_tokens,
                 contexts,
                 translation_intent=translation_intent,
+                direct_target=direct_target,
             )
         else:
             answer = (
