@@ -33,7 +33,8 @@ import {
   getTeacherMessagingState,
   saveTeacherMessagingState,
 } from './api'
-import { ActivityOptionVisual, ActivityQuestionImage } from './ActivityMedia'
+import { ActivityExerciseOptions, ActivityExercisePrompt } from './ActivityExerciseUi'
+import { getActivityExerciseLayout } from './activityExerciseLayout'
 import { speakText } from './corpusUtils'
 import { validatePasswordStrength } from './passwordPolicy'
 import {
@@ -328,7 +329,9 @@ function spotlightWord(q) {
 }
 
 function practiceQuestionCopyKey(tabId, qtype) {
-  if (qtype === 'imagen') return 'practice.qImagePick'
+  if (qtype === 'imagen') return 'practice.qMatchImageOnly'
+  if (qtype === 'completar') return 'practice.qGrammarBlank'
+  if (qtype === 'quiz') return 'practice.qWhichNasaForWord'
   if (tabId === 'gramatica' || tabId === 'escritura') return 'practice.qGrammarBlank'
   if (tabId === 'escucha') return 'practice.qListenPick'
   if (tabId === 'conversacion') return 'practice.qConversation'
@@ -3267,62 +3270,16 @@ export function StudentActivitiesRoute({
               </button>
             </div>
             <p className="quiz-meta">{t('act.qOf', { n: idx + 1, t: questions.length })}</p>
-            {q.type === 'imagen' && q.image_url ? (
-              <div className="quiz-img-row">
-                <ActivityQuestionImage
-                  src={q.image_url}
-                  alt={q.espanol ? `Ilustración: ${q.espanol}` : ''}
-                  className="quiz-img"
-                />
-              </div>
-            ) : q.type === 'imagen' ? (
-              <p className="quiz-img-fallback">{t('practice.imageUnavailable')}</p>
-            ) : null}
-            <h3>{q.prompt}</h3>
-            <div
-              className={[
-                'answers-grid',
-                'act-answers',
-                q.option_images && Object.keys(q.option_images).length ? 'act-answers--visual' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {(q.options || []).map((opt, optIdx) => {
-                const optImg = q.option_images?.[opt]
-                return (
-                  <button
-                    type="button"
-                    key={`${q.id}-opt-${optIdx}`}
-                    disabled={revealed}
-                    className={[
-                      'answer-chip',
-                      optImg ? 'answer-chip--visual' : '',
-                      revealed && activityStringsEqual(opt, q.answer) ? 'correct' : '',
-                      revealed &&
-                      chosen === opt &&
-                      !activityStringsEqual(opt, q.answer)
-                        ? 'incorrect'
-                        : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    onClick={() => pick(opt)}
-                  >
-                    {optImg ? (
-                      <ActivityOptionVisual
-                        optionText={opt}
-                        optionImages={q.option_images}
-                        category={q.categoria || category}
-                        imgClassName="act-opt-thumb"
-                        iconClassName="act-opt-icon-svg"
-                      />
-                    ) : null}
-                    <span className="answer-chip-label">{opt}</span>
-                  </button>
-                )
-              })}
-            </div>
+            <ActivityExercisePrompt q={q} t={t} spanishCue={q.espanol} classPrefix="act" />
+            <ActivityExerciseOptions
+              q={q}
+              chosen={chosen}
+              revealed={revealed}
+              onPick={pick}
+              stringsEqual={activityStringsEqual}
+              category={q.categoria || category}
+              variant="act"
+            />
             {revealed ? (
               <div className="quiz-feedback-msg">
                 {activityStringsEqual(chosen, q.answer) ? (
@@ -3703,94 +3660,46 @@ export function StudentActivitiesRoute({
                 </div>
               </div>
 
-              {q.type === 'imagen' && q.image_url ? (
-                <div className="practice-imagen-wrap">
-                  <ActivityQuestionImage
-                    src={q.image_url}
-                    alt={q.espanol ? `Ilustración: ${q.espanol}` : ''}
-                    className="practice-imagen"
-                  />
-                  <p className="practice-subq">{t(practiceQKey)}</p>
-                  <p className="practice-prompt-fine">{q.prompt}</p>
-                </div>
-              ) : q.type === 'imagen' ? (
-                <div className="practice-imagen-wrap practice-imagen-wrap--fallback">
-                  <p className="practice-subq">{t('practice.imageUnavailable')}</p>
-                  <p className="practice-prompt-fine">{q.prompt}</p>
-                </div>
-              ) : (
-                <div className="practice-spotlight">
-                  {(practiceTab === 'escucha' || practiceTab === 'vocabulario' || practiceTab === 'gramatica' || practiceTab === 'escritura') && (
-                    <button
-                      type="button"
-                      className="practice-speak-btn"
-                      aria-label={t('practice.listenCue')}
-                      onClick={() => {
-                        const line = [practiceCue, q?.espanol].filter(Boolean).join('. ')
-                        const ok = speakText(line || q?.prompt || '', 'es')
-                        if (!ok) notify(t('practice.audioUnavailable'))
-                      }}
-                    >
-                      <Volume2 size={26} strokeWidth={2} aria-hidden />
-                    </button>
-                  )}
-                  <div className="practice-spotlight-body">
-                    <p className="practice-cue-word">{practiceCue}</p>
-                    <p className="practice-subq">{t(practiceQKey)}</p>
-                    <p className="practice-prompt-fine">{q.prompt}</p>
+              {(() => {
+                const exLayout = getActivityExerciseLayout(q)
+                const showSpeak =
+                  exLayout.showSpanishCue &&
+                  (practiceTab === 'escucha' ||
+                    practiceTab === 'vocabulario' ||
+                    practiceTab === 'gramatica' ||
+                    practiceTab === 'escritura' ||
+                    q.type === 'quiz' ||
+                    q.type === 'completar')
+                return (
+                  <div className={`practice-ex-prompt-row${showSpeak ? ' practice-ex-prompt-row--speak' : ''}`}>
+                    {showSpeak ? (
+                      <button
+                        type="button"
+                        className="practice-speak-btn"
+                        aria-label={t('practice.listenCue')}
+                        onClick={() => {
+                          const line = [practiceCue, q?.espanol].filter(Boolean).join('. ')
+                          const ok = speakText(line || q?.prompt || '', 'es')
+                          if (!ok) notify(t('practice.audioUnavailable'))
+                        }}
+                      >
+                        <Volume2 size={26} strokeWidth={2} aria-hidden />
+                      </button>
+                    ) : null}
+                    <ActivityExercisePrompt q={q} t={t} spanishCue={practiceCue} classPrefix="practice" />
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
-              <div
-                className={[
-                  'practice-opt-grid',
-                  q.option_images && Object.keys(q.option_images).length ? 'practice-opt-grid--visual' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {(q.options || []).map((opt, opi) => {
-                  const optImg = q.option_images?.[opt]
-                  return (
-                    <button
-                      type="button"
-                      key={`${q.id}-popt-${opi}`}
-                      disabled={revealed}
-                      className={[
-                        'practice-opt',
-                        optImg ? 'practice-opt--visual' : '',
-                        revealed && activityStringsEqual(opt, q.answer) ? 'practice-opt-correct' : '',
-                        revealed &&
-                        chosen === opt &&
-                        !activityStringsEqual(opt, q.answer)
-                          ? 'practice-opt-wrong'
-                          : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      onClick={() => pick(opt)}
-                    >
-                      <span className="practice-opt-icon">
-                        <ActivityOptionVisual
-                          optionText={opt}
-                          optionImages={q.option_images}
-                          category={q.categoria || practiceSessionRef.current.category}
-                          imgClassName="practice-opt-thumb"
-                          iconClassName="practice-opt-icon-svg"
-                        />
-                      </span>
-                      <span className="practice-opt-label">{opt}</span>
-                      {revealed && activityStringsEqual(opt, q.answer) ? (
-                        <CheckCircle className="practice-opt-check" size={22} aria-hidden />
-                      ) : null}
-                      {revealed && chosen === opt && !activityStringsEqual(opt, q.answer) ? (
-                        <XCircle className="practice-opt-x" size={22} aria-hidden />
-                      ) : null}
-                    </button>
-                  )
-                })}
-              </div>
+              <ActivityExerciseOptions
+                q={q}
+                chosen={chosen}
+                revealed={revealed}
+                onPick={pick}
+                stringsEqual={activityStringsEqual}
+                category={q.categoria || practiceSessionRef.current.category}
+                variant="practice"
+              />
 
               {revealed ? (
                 <div className="practice-feedback-bar">

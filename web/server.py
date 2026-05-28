@@ -2144,6 +2144,18 @@ class CorpusEngine:
                 }
             random.shuffle(lex_img_rows)
             base = lex_img_rows[: max(cap, 5)]
+        elif act_mode == "quiz":
+            lex_quiz_rows = [
+                r
+                for r in lex_rows
+                if _term_local_image_url(
+                    str(r.get("id") or ""),
+                    str(r.get("espanol") or ""),
+                    str(r.get("categoria") or cat_norm),
+                )
+            ]
+            random.shuffle(lex_quiz_rows if len(lex_quiz_rows) >= 2 else lex_rows)
+            base = (lex_quiz_rows if len(lex_quiz_rows) >= 2 else lex_rows)[: max(cap, 5)]
         else:
             base = lex_rows[: max(cap, 5)]
 
@@ -2184,29 +2196,38 @@ class CorpusEngine:
             options = list(opt_out)
             random.shuffle(options)
             opts_final = options[:num_opts]
-            option_images = _option_images_for_nasa_options(opts_final, ny_index, cat_norm)
 
             if act_mode == "quiz":
-                prompt = f"Selecciona la traduccion en Nasa Yuwe para: '{es}'"
+                img_url = _term_local_image_url(
+                    str(row.get("id") or ""),
+                    es,
+                    str(row.get("categoria") or cat_norm),
+                )
+                if img_url:
+                    prompt = f"¿Cuál palabra en Nasa Yuwe corresponde mejor a «{es}»?"
+                else:
+                    prompt = f"Selecciona la traducción en Nasa Yuwe para: «{es}»"
                 q = {
                     "id": f"{cat_norm}-{qid}",
                     "type": "quiz",
                     "prompt": prompt,
                     "answer": answer,
                     "options": opts_final,
-                    "option_images": option_images,
+                    "options_style": "text_only",
                     "categoria": cat_norm,
                     "espanol": es,
+                    "image_url": img_url,
+                    "image_ok": bool(img_url),
                 }
             elif act_mode == "completar":
-                prompt = f"Completa: La expresion en Nasa Yuwe que corresponde a '{es}' es _____"
+                prompt = f"Completa: la expresión en Nasa Yuwe para «{es}» es _____"
                 q = {
                     "id": f"{cat_norm}-c-{qid}",
                     "type": "completar",
                     "prompt": prompt,
                     "answer": answer,
                     "options": opts_final,
-                    "option_images": option_images,
+                    "options_style": "text_only",
                     "categoria": cat_norm,
                     "espanol": es,
                 }
@@ -2221,10 +2242,11 @@ class CorpusEngine:
                 q = {
                     "id": f"{cat_norm}-i-{qid}",
                     "type": "imagen",
-                    "prompt": f"Asocia la imagen con la palabra en Nasa Yuwe relacionada con '{es}'",
+                    "prompt": "Une la imagen con la palabra correcta en Nasa Yuwe.",
                     "answer": answer,
                     "options": opts_final,
-                    "option_images": option_images,
+                    "options_style": "text_only",
+                    "hide_espanol_cue": True,
                     "categoria": cat_norm,
                     "espanol": es,
                     "image_url": img_url,

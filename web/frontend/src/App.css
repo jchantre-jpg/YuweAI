@@ -3664,6 +3664,71 @@ button {
   cursor: pointer;
 }
 
+.practice-ex-prompt-row {
+  margin-bottom: 1rem;
+}
+
+.practice-ex-prompt-row--speak {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.practice-ex-prompt-row--speak .practice-spotlight,
+.practice-ex-prompt-row--speak .practice-quiz-visual,
+.practice-ex-prompt-row--speak .practice-imagen-wrap,
+.practice-ex-prompt-row--speak .practice-complete-cue {
+  flex: 1;
+  min-width: 0;
+}
+
+.practice-quiz-visual,
+.act-quiz-visual {
+  text-align: center;
+  margin-bottom: 0.75rem;
+}
+
+.practice-quiz-visual .practice-cue-word,
+.act-quiz-visual .act-cue-word {
+  margin: 0.5rem 0 0.2rem;
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--forest);
+}
+
+.act-complete-cue .act-cue-word,
+.practice-complete-cue .practice-cue-word {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--forest);
+}
+
+.practice-complete-cue {
+  margin-bottom: 0.75rem;
+}
+
+.practice-blank-line,
+.act-blank-line {
+  margin: 0.35rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--forest-soft);
+}
+
+.practice-opt-grid--text-only .practice-opt--text-only {
+  justify-content: center;
+  min-height: 52px;
+  padding: 0.85rem 1rem;
+}
+
+.practice-opt-grid--text-only .practice-opt-label {
+  text-align: center;
+  font-size: 0.95rem;
+}
+
 .practice-imagen-wrap {
   text-align: center;
   margin-bottom: 1rem;
@@ -6218,6 +6283,30 @@ button {
   object-fit: contain;
   background: var(--cream-deep);
   box-shadow: var(--shadow-sm);
+}
+
+.answer-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--cream-deep);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  min-height: 2.75rem;
+}
+
+.answer-chip.correct {
+  border-color: rgba(45, 106, 79, 0.5);
+  background: rgba(232, 245, 236, 0.95);
+}
+
+.answer-chip.incorrect {
+  border-color: rgba(184, 68, 68, 0.4);
+  background: rgba(255, 245, 245, 0.9);
 }
 
 .act-answers--visual {
