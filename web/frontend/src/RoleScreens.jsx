@@ -33,6 +33,7 @@ import {
   getTeacherMessagingState,
   saveTeacherMessagingState,
 } from './api'
+import { ActivityOptionVisual, ActivityQuestionImage } from './ActivityMedia'
 import { speakText } from './corpusUtils'
 import { validatePasswordStrength } from './passwordPolicy'
 import {
@@ -157,6 +158,19 @@ function normLearnCatKey(s) {
     .replace(/_+/g, '_')
 }
 
+/** Compara glosas de actividad (trim + NFC) para evitar fallos por espacios o Unicode. */
+function activityStringsEqual(a, b) {
+  if (a == null && b == null) return true
+  if (a == null || b == null) return false
+  try {
+    return (
+      String(a).trim().normalize('NFC') === String(b).trim().normalize('NFC')
+    )
+  } catch {
+    return String(a).trim() === String(b).trim()
+  }
+}
+
 const PRACTICE_TRACK_STORAGE = 'avi-practice-track-v1'
 
 function practiceTrackKey(tabId, catSlug) {
@@ -262,8 +276,6 @@ const PRACTICE_TAB_ICONS = {
   conversacion: MessageCircle,
   escritura: PenLine,
 }
-
-const PRACTICE_OPT_ICONS = [Droplet, Mountain, Flame, Trees]
 
 const PRACTICE_WEEK_SHORT = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
@@ -3257,34 +3269,63 @@ export function StudentActivitiesRoute({
             <p className="quiz-meta">{t('act.qOf', { n: idx + 1, t: questions.length })}</p>
             {q.type === 'imagen' && q.image_url ? (
               <div className="quiz-img-row">
-                <img src={q.image_url} alt="" className="quiz-img" />
+                <ActivityQuestionImage
+                  src={q.image_url}
+                  alt={q.espanol ? `Ilustración: ${q.espanol}` : ''}
+                  className="quiz-img"
+                />
               </div>
             ) : q.type === 'imagen' ? (
               <p className="quiz-img-fallback">{t('practice.imageUnavailable')}</p>
             ) : null}
             <h3>{q.prompt}</h3>
-            <div className="answers-grid act-answers">
-              {(q.options || []).map((opt) => (
-                <button
-                  type="button"
-                  key={opt}
-                  disabled={revealed}
-                  className={[
-                    'answer-chip',
-                    revealed && opt === q.answer ? 'correct' : '',
-                    revealed && chosen === opt && opt !== q.answer ? 'incorrect' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  onClick={() => pick(opt)}
-                >
-                  {opt}
-                </button>
-              ))}
+            <div
+              className={[
+                'answers-grid',
+                'act-answers',
+                q.option_images && Object.keys(q.option_images).length ? 'act-answers--visual' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {(q.options || []).map((opt, optIdx) => {
+                const optImg = q.option_images?.[opt]
+                return (
+                  <button
+                    type="button"
+                    key={`${q.id}-opt-${optIdx}`}
+                    disabled={revealed}
+                    className={[
+                      'answer-chip',
+                      optImg ? 'answer-chip--visual' : '',
+                      revealed && activityStringsEqual(opt, q.answer) ? 'correct' : '',
+                      revealed &&
+                      chosen === opt &&
+                      !activityStringsEqual(opt, q.answer)
+                        ? 'incorrect'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={() => pick(opt)}
+                  >
+                    {optImg ? (
+                      <ActivityOptionVisual
+                        optionText={opt}
+                        optionImages={q.option_images}
+                        category={q.categoria || category}
+                        imgClassName="act-opt-thumb"
+                        iconClassName="act-opt-icon-svg"
+                      />
+                    ) : null}
+                    <span className="answer-chip-label">{opt}</span>
+                  </button>
+                )
+              })}
             </div>
             {revealed ? (
               <div className="quiz-feedback-msg">
-                {chosen === q.answer ? (
+                {activityStringsEqual(chosen, q.answer) ? (
                   <>
                     <CheckCircle size={18} /> {t('act.good')}
                   </>
@@ -3306,13 +3347,16 @@ export function StudentActivitiesRoute({
           <div className="score-card">
             <h3>{t('act.scoreTitle')}</h3>
             <p className="score-big">
-              {questions.filter((iq) => iq._picked === iq.answer).length}/{questions.length}
+              {questions.filter((iq) => activityStringsEqual(iq._picked, iq.answer)).length}/{questions.length}
             </p>
             <details>
               <summary>{t('act.breakdown')}</summary>
               <ul>
                 {questions.map((iq) => (
-                  <li key={iq.id} className={iq._picked === iq.answer ? 'score-ok' : 'score-bad'}>
+                  <li
+                    key={iq.id}
+                    className={activityStringsEqual(iq._picked, iq.answer) ? 'score-ok' : 'score-bad'}
+                  >
                     {iq.prompt}: <strong>{iq.answer}</strong>
                   </li>
                 ))}
@@ -3661,7 +3705,11 @@ export function StudentActivitiesRoute({
 
               {q.type === 'imagen' && q.image_url ? (
                 <div className="practice-imagen-wrap">
-                  <img src={q.image_url} alt="" className="practice-imagen" />
+                  <ActivityQuestionImage
+                    src={q.image_url}
+                    alt={q.espanol ? `Ilustración: ${q.espanol}` : ''}
+                    className="practice-imagen"
+                  />
                   <p className="practice-subq">{t(practiceQKey)}</p>
                   <p className="practice-prompt-fine">{q.prompt}</p>
                 </div>
@@ -3694,31 +3742,49 @@ export function StudentActivitiesRoute({
                 </div>
               )}
 
-              <div className="practice-opt-grid">
+              <div
+                className={[
+                  'practice-opt-grid',
+                  q.option_images && Object.keys(q.option_images).length ? 'practice-opt-grid--visual' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
                 {(q.options || []).map((opt, opi) => {
-                  const Ico = PRACTICE_OPT_ICONS[opi % PRACTICE_OPT_ICONS.length]
+                  const optImg = q.option_images?.[opt]
                   return (
                     <button
                       type="button"
-                      key={`${opi}-${opt}`}
+                      key={`${q.id}-popt-${opi}`}
                       disabled={revealed}
                       className={[
                         'practice-opt',
-                        revealed && opt === q.answer ? 'practice-opt-correct' : '',
-                        revealed && chosen === opt && opt !== q.answer ? 'practice-opt-wrong' : '',
+                        optImg ? 'practice-opt--visual' : '',
+                        revealed && activityStringsEqual(opt, q.answer) ? 'practice-opt-correct' : '',
+                        revealed &&
+                        chosen === opt &&
+                        !activityStringsEqual(opt, q.answer)
+                          ? 'practice-opt-wrong'
+                          : '',
                       ]
                         .filter(Boolean)
                         .join(' ')}
                       onClick={() => pick(opt)}
                     >
                       <span className="practice-opt-icon">
-                        <Ico size={22} strokeWidth={2.1} aria-hidden />
+                        <ActivityOptionVisual
+                          optionText={opt}
+                          optionImages={q.option_images}
+                          category={q.categoria || practiceSessionRef.current.category}
+                          imgClassName="practice-opt-thumb"
+                          iconClassName="practice-opt-icon-svg"
+                        />
                       </span>
                       <span className="practice-opt-label">{opt}</span>
-                      {revealed && opt === q.answer ? (
+                      {revealed && activityStringsEqual(opt, q.answer) ? (
                         <CheckCircle className="practice-opt-check" size={22} aria-hidden />
                       ) : null}
-                      {revealed && chosen === opt && opt !== q.answer ? (
+                      {revealed && chosen === opt && !activityStringsEqual(opt, q.answer) ? (
                         <XCircle className="practice-opt-x" size={22} aria-hidden />
                       ) : null}
                     </button>
@@ -3729,13 +3795,13 @@ export function StudentActivitiesRoute({
               {revealed ? (
                 <div className="practice-feedback-bar">
                   <div className="practice-feedback-inner">
-                    {chosen === q.answer ? (
+                    {activityStringsEqual(chosen, q.answer) ? (
                       <CheckCircle className="practice-feedback-ico ok" size={24} aria-hidden />
                     ) : (
                       <XCircle className="practice-feedback-ico bad" size={24} aria-hidden />
                     )}
                     <p className="practice-feedback-text">
-                      {chosen === q.answer
+                      {activityStringsEqual(chosen, q.answer)
                         ? t('practice.feedbackCorrect', {
                             nasa: q.answer,
                             es: practiceCue || q.espanol || '—',
@@ -3776,13 +3842,16 @@ export function StudentActivitiesRoute({
             <section className="practice-score-card">
               <h3>{t('act.scoreTitle')}</h3>
               <p className="practice-score-big">
-                {questions.filter((iq) => iq._picked === iq.answer).length}/{questions.length}
+                {questions.filter((iq) => activityStringsEqual(iq._picked, iq.answer)).length}/{questions.length}
               </p>
               <details className="practice-score-details">
                 <summary>{t('act.breakdown')}</summary>
                 <ul>
                   {questions.map((iq) => (
-                    <li key={iq.id} className={iq._picked === iq.answer ? 'score-ok' : 'score-bad'}>
+                    <li
+                      key={iq.id}
+                      className={activityStringsEqual(iq._picked, iq.answer) ? 'score-ok' : 'score-bad'}
+                    >
                       {iq.prompt}: <strong>{iq.answer}</strong>
                     </li>
                   ))}

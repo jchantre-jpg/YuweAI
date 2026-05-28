@@ -6204,6 +6204,92 @@ button {
   }
 }
 
+.quiz-img-row {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.quiz-img,
+.practice-imagen {
+  max-height: min(42vh, 280px);
+  width: auto;
+  max-width: 100%;
+  border-radius: 16px;
+  object-fit: contain;
+  background: var(--cream-deep);
+  box-shadow: var(--shadow-sm);
+}
+
+.act-answers--visual {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 720px) {
+  .act-answers--visual {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.answer-chip--visual {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.45rem;
+  text-align: center;
+}
+
+.act-opt-thumb {
+  width: 100%;
+  max-width: 88px;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #fff;
+}
+
+.act-opt-icon-svg {
+  color: var(--forest);
+}
+
+.answer-chip-label {
+  font-weight: 700;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.practice-opt-grid--visual .practice-opt--visual {
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+  min-height: 0;
+  padding: 0.55rem;
+}
+
+.practice-opt--visual .practice-opt-icon {
+  width: 100%;
+  height: auto;
+  min-height: 72px;
+  max-height: 96px;
+  border-radius: 14px;
+  overflow: hidden;
+  padding: 0;
+  background: #fff;
+}
+
+.practice-opt-thumb {
+  width: 100%;
+  height: 100%;
+  min-height: 72px;
+  max-height: 96px;
+  object-fit: cover;
+  display: block;
+}
+
+.practice-opt-icon-svg {
+  color: var(--forest);
+}
+
 .score-card {
   text-align: center;
   padding: 2rem 1rem;
@@ -9061,11 +9147,26 @@ button {
   background: var(--cream-deep);
 }
 
-.yuwe-dict-card-img .dict-gallery-img {
+.yuwe-dict-card-img .dict-gallery-img,
+.yuwe-dict-img-ready {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  animation: yuwe-dict-img-fade 0.22s ease-out;
+}
+
+@keyframes yuwe-dict-img-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.yuwe-dict-hero-visual .yuwe-dict-img-ready {
+  animation-duration: 0.28s;
 }
 
 .yuwe-dict-card-audio-pair {

@@ -241,6 +241,38 @@ def _attach_term_image(term: dict) -> dict:
     return out
 
 
+def _lexicon_ny_index(lex_rows: list) -> dict[str, dict]:
+    """Indice normalize(nasa_yuwe) -> fila lexica (primera aparicion)."""
+    idx: dict[str, dict] = {}
+    for row in lex_rows:
+        k = normalize_text((row.get("nasa_yuwe") or "").strip())
+        if k and k not in idx:
+            idx[k] = row
+    return idx
+
+
+def _option_images_for_nasa_options(
+    options: list[str], ny_index: dict[str, dict], cat_norm: str
+) -> dict[str, str]:
+    """Mapa texto opcion (Nasa) -> /api/corpus-img/... solo ilustraciones locales."""
+    out: dict[str, str] = {}
+    for ny in options or []:
+        s = (ny or "").strip()
+        if not s:
+            continue
+        row = ny_index.get(normalize_text(s))
+        if not row:
+            continue
+        url = _term_local_image_url(
+            str(row.get("id") or ""),
+            str(row.get("espanol") or ""),
+            str(row.get("categoria") or cat_norm),
+        )
+        if url:
+            out[s] = url
+    return out
+
+
 def _lev_distance(a: str, b: str) -> int:
     """Distancia Levenshtein (sugerencias sin dependencias)."""
     if len(a) < len(b):
@@ -2088,9 +2120,33 @@ class CorpusEngine:
                 "difficulty": diff,
             }
 
+        ny_index = _lexicon_ny_index(lex_rows)
         random.shuffle(lex_rows)
         cap = max(limit, num_opts + 1)
-        base = lex_rows[: max(cap, 5)]
+
+        if act_mode == "imagen":
+            lex_img_rows = [
+                r
+                for r in lex_rows
+                if _term_local_image_url(
+                    str(r.get("id") or ""),
+                    str(r.get("espanol") or ""),
+                    str(r.get("categoria") or cat_norm),
+                )
+            ]
+            if len(lex_img_rows) < 2:
+                return {
+                    "category": cat_norm,
+                    "questions": [],
+                    "message": "No hay suficientes terminos con ilustracion en esta categoria.",
+                    "mode": act_mode,
+                    "difficulty": diff,
+                }
+            random.shuffle(lex_img_rows)
+            base = lex_img_rows[: max(cap, 5)]
+        else:
+            base = lex_rows[: max(cap, 5)]
+
         all_answers = [(r.get("nasa_yuwe") or "").strip() for r in lex_rows if (r.get("nasa_yuwe") or "").strip()]
         questions = []
         qid = 1
@@ -2127,6 +2183,8 @@ class CorpusEngine:
                 continue
             options = list(opt_out)
             random.shuffle(options)
+            opts_final = options[:num_opts]
+            option_images = _option_images_for_nasa_options(opts_final, ny_index, cat_norm)
 
             if act_mode == "quiz":
                 prompt = f"Selecciona la traduccion en Nasa Yuwe para: '{es}'"
@@ -2135,7 +2193,8 @@ class CorpusEngine:
                     "type": "quiz",
                     "prompt": prompt,
                     "answer": answer,
-                    "options": options[:num_opts],
+                    "options": opts_final,
+                    "option_images": option_images,
                     "categoria": cat_norm,
                     "espanol": es,
                 }
@@ -2146,23 +2205,31 @@ class CorpusEngine:
                     "type": "completar",
                     "prompt": prompt,
                     "answer": answer,
-                    "options": options[:num_opts],
+                    "options": opts_final,
+                    "option_images": option_images,
                     "categoria": cat_norm,
                     "espanol": es,
                 }
             else:
-                img = fetch_commons_image(es, cat_norm, str(row.get("id") or ""))
-                img_ok = bool(img.get("ok")) if isinstance(img, dict) else False
+                img_url = _term_local_image_url(
+                    str(row.get("id") or ""),
+                    es,
+                    str(row.get("categoria") or cat_norm),
+                )
+                if not img_url:
+                    continue
                 q = {
                     "id": f"{cat_norm}-i-{qid}",
                     "type": "imagen",
                     "prompt": f"Asocia la imagen con la palabra en Nasa Yuwe relacionada con '{es}'",
                     "answer": answer,
-                    "options": options[:num_opts],
+                    "options": opts_final,
+                    "option_images": option_images,
                     "categoria": cat_norm,
                     "espanol": es,
-                    "image_url": img.get("image_url") if isinstance(img, dict) else None,
-                    "image_ok": img_ok,
+                    "image_url": img_url,
+                    "image_ok": True,
+                    "image_source": "corpus_solo",
                 }
             questions.append(q)
             qid += 1
