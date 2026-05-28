@@ -9061,8 +9061,8 @@ button {
   background: var(--cream-deep);
 }
 
-.yuwe-dict-card-img .dict-gallery-img,
-.yuwe-dict-card-img .dict-gallery-img--empty {
+.yuwe-dict-card-img .dict-gallery-img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -9250,10 +9250,13 @@ button {
 
 .yuwe-dict-hero-img.dict-gallery-img,
 .yuwe-dict-hero-img {
+  display: block;
   width: 100%;
+  max-height: min(52vh, 420px);
   aspect-ratio: 1;
   border-radius: 20px;
-  object-fit: cover;
+  object-fit: contain;
+  background: var(--cream-deep);
 }
 
 .yuwe-dict-hero-visual .dict-gallery-img--empty {
@@ -9376,30 +9379,53 @@ button {
 }
 
 .yuwe-dict-related-chip {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.15rem 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.45rem 0.65rem;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--cream-deep);
   text-align: left;
+  max-width: 100%;
+}
+
+.yuwe-dict-related-thumb {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(26, 61, 43, 0.08);
+}
+
+.yuwe-dict-related-thumb-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.yuwe-dict-related-chip-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 
 .yuwe-dict-related-chip strong {
-  grid-column: 1 / 2;
   color: var(--forest);
 }
 
 .yuwe-dict-related-chip small {
-  grid-column: 1 / 2;
   color: var(--text-muted);
   font-size: 0.74rem;
 }
 
 .yuwe-dict-related-audio {
-  grid-column: 2 / 3;
-  grid-row: 1 / span 2;
+  flex-shrink: 0;
   align-self: center;
   color: var(--terracotta);
 }

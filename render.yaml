@@ -26,7 +26,7 @@ services:
       # Crear: tar -czvf solo-img-ia.tar.gz -C corpus generadas-img-ia-solo  (desde raiz YuweAI)
       # Subir a almacen con enlace directo (S3, HF, release de GitHub, etc.) y pegar la URL aqui.
       - key: SOLO_IMG_TARBALL_URL
-        sync: false
+        value: https://github.com/jchantre-jpg/YuweAI/releases/download/solo-img-ia-v1/solo-img-ia.tar.gz
       - key: DATABASE_URL
         sync: false
       # Opcional: OAuth Google en el servidor (si lo usas, añade en el dashboard o descomenta con sync: false)

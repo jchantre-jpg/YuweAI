@@ -5,6 +5,15 @@ const API_BASE =
   _rawBase ||
   (import.meta.env.PROD ? DEFAULT_PROD_API : '')
 
+/** Rutas del API (/api/corpus-img/...) en prod necesitan el host del backend. */
+export function apiAssetUrl(path) {
+  if (!path) return ''
+  const s = String(path).trim()
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
+  const p = s.startsWith('/') ? s : `/${s}`
+  return `${API_BASE}${p}`
+}
+
 export class ApiError extends Error {
   constructor(message, status) {
     super(message)

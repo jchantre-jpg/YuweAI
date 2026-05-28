@@ -210,6 +210,37 @@ def _local_solo_image_payload(query: str, category: str, term_id: str = "") -> d
     }
 
 
+def _term_local_image_url(term_id: str = "", query: str = "", category: str = "") -> str | None:
+    """URL relativa /api/corpus-img/... si el termino tiene PNG en generadas-img-ia-solo."""
+    by_id, by_lex = _get_solo_image_index()
+    rel = ""
+    tid = (term_id or "").strip()
+    if tid and tid in by_id:
+        rel = by_id[tid]
+    if not rel:
+        k = f"{normalize_text(query or '')}|{normalize_text(category or '')}"
+        rel = by_lex.get(k, "")
+    if not rel:
+        return None
+    rel = str(rel).strip().replace("\\", "/").lstrip("/")
+    if not rel or ".." in rel:
+        return None
+    return f"/api/corpus-img/{rel}"
+
+
+def _attach_term_image(term: dict) -> dict:
+    """Copia del termino con image_url cuando hay ilustracion local."""
+    out = dict(term)
+    url = _term_local_image_url(
+        str(out.get("id") or ""),
+        str(out.get("espanol") or ""),
+        str(out.get("categoria") or ""),
+    )
+    if url:
+        out["image_url"] = url
+    return out
+
+
 def _lev_distance(a: str, b: str) -> int:
     """Distancia Levenshtein (sugerencias sin dependencias)."""
     if len(a) < len(b):
@@ -1877,13 +1908,15 @@ class CorpusEngine:
             if row["record_type"] != "lexico":
                 continue
             rows.append(
-                {
-                    "id": row["id"],
-                    "nasa_yuwe": row["nasa_yuwe"],
-                    "espanol": row["espanol"],
-                    "fuente_nombre": row["fuente_nombre"],
-                    "categoria": row.get("categoria") or row.get("categoria_norm") or "",
-                }
+                _attach_term_image(
+                    {
+                        "id": row["id"],
+                        "nasa_yuwe": row["nasa_yuwe"],
+                        "espanol": row["espanol"],
+                        "fuente_nombre": row["fuente_nombre"],
+                        "categoria": row.get("categoria") or row.get("categoria_norm") or "",
+                    }
+                )
             )
             if not want_all and len(rows) >= max_terms:
                 break
@@ -1908,13 +1941,15 @@ class CorpusEngine:
             if row.get("record_type") != "lexico":
                 continue
             out.append(
-                {
-                    "id": row["id"],
-                    "nasa_yuwe": row["nasa_yuwe"],
-                    "espanol": row["espanol"],
-                    "fuente_nombre": row["fuente_nombre"],
-                    "categoria": row.get("categoria") or "",
-                }
+                _attach_term_image(
+                    {
+                        "id": row["id"],
+                        "nasa_yuwe": row["nasa_yuwe"],
+                        "espanol": row["espanol"],
+                        "fuente_nombre": row["fuente_nombre"],
+                        "categoria": row.get("categoria") or "",
+                    }
+                )
             )
             if len(out) >= cap:
                 break
@@ -1948,13 +1983,15 @@ class CorpusEngine:
             elif any(ql in part for part in es.split() if len(ql) >= 3):
                 score = 55
             if score:
-                entry = {
-                    "id": row.get("id"),
-                    "espanol": row.get("espanol", ""),
-                    "nasa_yuwe": row.get("nasa_yuwe", ""),
-                    "categoria": row.get("categoria", ""),
-                    "fuente_nombre": row.get("fuente_nombre", ""),
-                }
+                entry = _attach_term_image(
+                    {
+                        "id": row.get("id"),
+                        "espanol": row.get("espanol", ""),
+                        "nasa_yuwe": row.get("nasa_yuwe", ""),
+                        "categoria": row.get("categoria", ""),
+                        "fuente_nombre": row.get("fuente_nombre", ""),
+                    }
+                )
                 lex_matches.append((score, entry))
 
         lex_matches.sort(key=lambda x: x[0], reverse=True)
@@ -2027,6 +2064,21 @@ class CorpusEngine:
             if row["record_type"] == "lexico":
                 lex_rows.append(row)
 
+        # Una fila por glosa Nasa (normalizada): evita opciones repetidas en el mismo quiz
+        # y fallos en el cliente (keys duplicadas / misma etiqueta dos veces).
+        _seen_ny: set[str] = set()
+        _uniq_lex: list = []
+        for row in lex_rows:
+            ny_raw = (row.get("nasa_yuwe") or "").strip()
+            if not ny_raw:
+                continue
+            nk = normalize_text(ny_raw)
+            if nk in _seen_ny:
+                continue
+            _seen_ny.add(nk)
+            _uniq_lex.append(row)
+        lex_rows = _uniq_lex
+
         if len(lex_rows) < max(4, num_opts):
             return {
                 "category": cat_norm,
@@ -2039,13 +2091,16 @@ class CorpusEngine:
         random.shuffle(lex_rows)
         cap = max(limit, num_opts + 1)
         base = lex_rows[: max(cap, 5)]
-        all_answers = [r["nasa_yuwe"] for r in lex_rows if r.get("nasa_yuwe")]
+        all_answers = [(r.get("nasa_yuwe") or "").strip() for r in lex_rows if (r.get("nasa_yuwe") or "").strip()]
         questions = []
         qid = 1
         for row in base[:limit]:
-            answer = row["nasa_yuwe"]
-            es = row.get("espanol", "") or ""
-            distractors = [x for x in all_answers if x and x != answer]
+            answer = (row.get("nasa_yuwe") or "").strip()
+            es = (row.get("espanol", "") or "").strip()
+            if not answer:
+                continue
+            ans_key = normalize_text(answer)
+            distractors = [x for x in all_answers if x and normalize_text(x) != ans_key]
             random.shuffle(distractors)
             if diff == "avanzado" and len(answer) > 2:
                 ln = len(answer)
@@ -2054,7 +2109,23 @@ class CorpusEngine:
             else:
                 pool = distractors
             picks = pool[:n_distractors]
-            options = [answer] + picks
+            # Opciones unicas: respuesta + distractores sin repetir (ni duplicar la correcta)
+            opt_seen: set[str] = {ans_key}
+            opt_out: list[str] = [answer]
+            for o in picks:
+                s = (o or "").strip()
+                if not s:
+                    continue
+                k = normalize_text(s)
+                if k in opt_seen:
+                    continue
+                opt_seen.add(k)
+                opt_out.append(s)
+                if len(opt_out) >= num_opts:
+                    break
+            if len(opt_out) < 2:
+                continue
+            options = list(opt_out)
             random.shuffle(options)
 
             if act_mode == "quiz":

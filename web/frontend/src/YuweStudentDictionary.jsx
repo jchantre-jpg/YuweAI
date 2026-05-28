@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getDictionary, getDictionaryFull, getStats } from './api'
+import { DictionaryTermImage } from './DictionaryTermImage'
 import { examplePhrases, phoneticHint, speakText } from './corpusUtils'
 import {
   ArrowLeft,
@@ -68,6 +69,7 @@ function rowFromLexTerm(term, categoryTag) {
     espanol: term.espanol,
     fuente_nombre: term.fuente_nombre,
     categoria: term.categoria || '',
+    image_url: term.image_url || '',
   }
   const cat = String(categoryTag ?? term.categoria ?? 'general').trim() || 'general'
   return { term: row, category: cat }
@@ -304,7 +306,11 @@ export function StudentDictionaryRoute({
     const pos = grammarRoleSpanish(sel.espanol)
     const posLong = pos === 'Verbo' ? 'Verbo' : 'Sustantivo común'
     const dots = frequencyTier(sel.id)
-    const related = catalog.filter((r) => r.category === selCat && r.term.id !== sel.id).slice(0, 6)
+    const relatedPool = catalog.filter((r) => r.category === selCat && r.term.id !== sel.id)
+    const related = [...relatedPool.filter((r) => r.term.image_url), ...relatedPool.filter((r) => !r.term.image_url)].slice(
+      0,
+      6,
+    )
 
     return (
       <div className="page-shell dict-shell yuwe-dict-shell">
@@ -354,11 +360,15 @@ export function StudentDictionaryRoute({
 
           <div className="yuwe-dict-detail-split">
             <div className="yuwe-dict-detail-maincard">
-              <div className="yuwe-dict-hero-visual">
-                <span className="yuwe-dict-leaf-ring" aria-hidden>
-                  <Leaf size={28} strokeWidth={1.5} />
-                </span>
-              </div>
+              {sel.image_url ? (
+                <div className="yuwe-dict-hero-visual">
+                  <DictionaryTermImage
+                    src={sel.image_url}
+                    alt={`Ilustración: ${cleanWord(sel.espanol)}`}
+                    className="yuwe-dict-hero-img dict-gallery-img"
+                  />
+                </div>
+              ) : null}
 
               <div className="yuwe-dict-lang-row">
                 <div className="yuwe-dict-lang-card">
@@ -393,8 +403,19 @@ export function StudentDictionaryRoute({
                 <div className="yuwe-dict-related-row">
                   {related.map((r) => (
                     <button key={`${r.term.id}-${r.category}`} type="button" className="yuwe-dict-related-chip" onClick={() => openRow(r)}>
-                      <strong>{cleanWord(r.term.nasa_yuwe)}</strong>
-                      <small>{cleanWord(r.term.espanol)}</small>
+                      {r.term.image_url ? (
+                        <span className="yuwe-dict-related-thumb">
+                          <DictionaryTermImage
+                            src={r.term.image_url}
+                            alt=""
+                            className="yuwe-dict-related-thumb-img"
+                          />
+                        </span>
+                      ) : null}
+                      <span className="yuwe-dict-related-chip-body">
+                        <strong>{cleanWord(r.term.nasa_yuwe)}</strong>
+                        <small>{cleanWord(r.term.espanol)}</small>
+                      </span>
                       <span className="yuwe-dict-related-audio">
                         <Volume2 size={14} aria-hidden />
                       </span>
@@ -577,6 +598,14 @@ export function StudentDictionaryRoute({
                   const g = grammarRoleSpanish(row.term.espanol)
                   return (
                     <button key={`${row.term.id}-${row.category}`} type="button" className="yuwe-dict-word-card" onClick={() => openRow(row)}>
+                      {row.term.image_url ? (
+                        <div className="yuwe-dict-card-img">
+                          <DictionaryTermImage
+                            src={row.term.image_url}
+                            alt={`Ilustración: ${cleanWord(row.term.espanol)}`}
+                          />
+                        </div>
+                      ) : null}
                       <strong>{cleanWord(row.term.nasa_yuwe)}</strong>
                       <small className="yuwe-dict-card-es">{cleanWord(row.term.espanol)}</small>
                       <span className="yuwe-dict-card-pos">{g}</span>
