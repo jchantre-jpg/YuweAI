@@ -27,6 +27,7 @@ COPY web/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY web/server.py ./
+COPY web/solo_images_bootstrap.py ./
 COPY web/avi_db.py ./
 COPY web/static ./static/
 COPY web/models ./models/
@@ -46,42 +47,40 @@ RUN mkdir -p /app/corpus/data \
 
 ENV AVI_CORPUS_PATH=/app/corpus/data/corpus_bilingue_v5.csv
 
-# Léxico visual: rutas (JSON/JSONL) y PNG si están en el contexto de build (en Git suelen ir solo metadatos).
+# PNG del diccionario: metadatos en Git; tarball grande se baja al arrancar (solo_images_bootstrap.py).
+# Build opcional (falla suave si timeout); runtime usa SOLO_IMG_TARBALL_URL en Render.
 COPY corpus/generadas-img-ia-solo/ /app/corpus/generadas-img-ia-solo/
 
-# Opcional (Render / CI): URL HTTPS a un .tar.gz (ver corpus/generadas-img-ia-solo/README.md).
-# Acepta tarball con rutas en la raiz (recomendado: tar -C corpus/generadas-img-ia-solo .)
-# o con prefijo generadas-img-ia-solo/ (tar -C corpus generadas-img-ia-solo en Windows).
-# Render expone las variables del servicio como Docker ARG durante el build (mismo nombre que la env).
 ARG SOLO_IMG_TARBALL_URL=
 ARG SOLO_IMG_TARBALL_PARTS=
-RUN set -eux; \
-    if [ -n "$SOLO_IMG_TARBALL_PARTS" ]; then \
-      echo "Downloading SOLO_IMG_TARBALL_PARTS ..."; \
-      rm -f /tmp/solo_img_ia.tar.gz /tmp/solo_img_part_*; \
-      part=0; \
-      OLDIFS="$IFS"; IFS=','; \
-      for url in $SOLO_IMG_TARBALL_PARTS; do \
-        part=$((part + 1)); \
-        curl -fSL "$url" -o "/tmp/solo_img_part_$(printf '%03d' "$part")"; \
-      done; \
-      IFS="$OLDIFS"; \
-      cat /tmp/solo_img_part_* > /tmp/solo_img_ia.tar.gz; \
-      rm -f /tmp/solo_img_part_*; \
-    elif [ -n "$SOLO_IMG_TARBALL_URL" ]; then \
-      echo "Downloading SOLO_IMG_TARBALL_URL ..."; \
-      curl -fSL "$SOLO_IMG_TARBALL_URL" -o /tmp/solo_img_ia.tar.gz; \
-      rm -rf /tmp/solo_ex && mkdir -p /tmp/solo_ex; \
-      tar -xzf /tmp/solo_img_ia.tar.gz -C /tmp/solo_ex; \
-      if [ -d /tmp/solo_ex/generadas-img-ia-solo ]; then \
-        cp -a /tmp/solo_ex/generadas-img-ia-solo/. /app/corpus/generadas-img-ia-solo/; \
-      else \
-        cp -a /tmp/solo_ex/. /app/corpus/generadas-img-ia-solo/; \
-      fi; \
-      rm -rf /tmp/solo_ex /tmp/solo_img_ia.tar.gz; \
-      python3 -c "import pathlib; p=pathlib.Path('/app/corpus/generadas-img-ia-solo'); n=sum(1 for _ in p.rglob('*.png')); print('solo PNG count:', n); assert n >= 1, 'SOLO_IMG_TARBALL_URL: no se encontro ningun PNG (revisa rutas dentro del .tar.gz)'"; \
+RUN set -ux; \
+    if [ -n "$SOLO_IMG_TARBALL_PARTS" ] || [ -n "$SOLO_IMG_TARBALL_URL" ]; then \
+      echo "Intento build-time tarball (opcional; runtime reintenta si falla)..."; \
+      ( set -e; \
+        if [ -n "$SOLO_IMG_TARBALL_PARTS" ]; then \
+          rm -f /tmp/solo_img_ia.tar.gz /tmp/solo_img_part_*; \
+          part=0; OLDIFS="$IFS"; IFS=','; \
+          for url in $SOLO_IMG_TARBALL_PARTS; do \
+            part=$((part + 1)); \
+            curl -fSL "$url" -o "/tmp/solo_img_part_$(printf '%03d' "$part")"; \
+          done; \
+          IFS="$OLDIFS"; cat /tmp/solo_img_part_* > /tmp/solo_img_ia.tar.gz; \
+          rm -f /tmp/solo_img_part_*; \
+        else \
+          curl -fSL "$SOLO_IMG_TARBALL_URL" -o /tmp/solo_img_ia.tar.gz; \
+        fi; \
+        rm -rf /tmp/solo_ex && mkdir -p /tmp/solo_ex; \
+        tar -xzf /tmp/solo_img_ia.tar.gz -C /tmp/solo_ex; \
+        if [ -d /tmp/solo_ex/generadas-img-ia-solo ]; then \
+          cp -a /tmp/solo_ex/generadas-img-ia-solo/. /app/corpus/generadas-img-ia-solo/; \
+        else \
+          cp -a /tmp/solo_ex/. /app/corpus/generadas-img-ia-solo/; \
+        fi; \
+        rm -rf /tmp/solo_ex /tmp/solo_img_ia.tar.gz; \
+        python3 -c "import pathlib; p=pathlib.Path('/app/corpus/generadas-img-ia-solo'); n=sum(1 for _ in p.rglob('*.png')); print('solo PNG count (build):', n)"; \
+      ) || echo "WARN: build-time tarball omitido; se descargara al arrancar el servidor."; \
     else \
-      echo "SOLO_IMG_TARBALL_URL unset; generadas-img-ia-solo solo desde el contexto de build (sin PNG si estan en .gitignore)."; \
+      echo "SOLO_IMG_TARBALL_URL unset; PNG al arrancar si se define en Render."; \
     fi
 
 RUN mkdir -p /app/web/data \

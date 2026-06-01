@@ -6,6 +6,7 @@ import random
 import re
 import secrets
 from avi_db import USE_POSTGRES, connect_auth, insert_returning_id, scalar_from_row
+import solo_images_bootstrap
 import threading
 import time
 import hashlib
@@ -5168,6 +5169,8 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "categories": len(ENGINE.by_category.keys()),
                     "model": ENGINE.model.get("model_name", "runtime"),
                     "training_rows": ENGINE.model.get("training_rows", 0),
+                    "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
+                    "solo_images_ready": solo_images_bootstrap.png_count(SOLO_IMG_DIR) >= 100,
                     "message": "AVI operativo",
                 },
                 ensure_ascii=False,
@@ -5341,6 +5344,8 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "categories": len(ENGINE.by_category.keys()),
                     "model": ENGINE.model.get("model_name", "runtime"),
                     "training_rows": ENGINE.model.get("training_rows", 0),
+                    "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
+                    "solo_images_ready": solo_images_bootstrap.png_count(SOLO_IMG_DIR) >= 100,
                     "message": "AVI operativo",
                 }
             )
@@ -5500,6 +5505,7 @@ def run():
         f"[AVI] Seguridad: rate-limit auth {AUTH_RL_MAX}/{int(AUTH_RL_WINDOW_SEC)}s por IP | "
         f"CORS={'lista AVI_CORS_ORIGINS' if CORS_ALLOWED_ORIGINS else '* (desarrollo)'}",
     )
+    solo_images_bootstrap.start_background_fetch(SOLO_IMG_DIR)
     server.serve_forever()
 
 

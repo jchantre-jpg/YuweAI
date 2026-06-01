@@ -22,8 +22,7 @@ services:
         value: https://yuwe-ai.web.app,https://yuwe-ai.firebaseapp.com
       - key: AVI_SKIP_DEMO_USERS
         value: "1"
-      # Build + runtime: URL directa a .tar.gz con corpus/generadas-img-ia-solo (PNG + JSON).
-      # Opcion A (GitHub, 3 partes <2GB). Opcion B (HF archivo unico): SOLO_IMG_TARBALL_URL.
+      # PNG diccionario: se descargan al ARRANCAR el servidor (no en build). Borra SOLO_IMG_TARBALL_PARTS si existe en el panel.
       - key: SOLO_IMG_TARBALL_URL
         value: https://huggingface.co/Juliana08/yuwe-solo-img-tarball/resolve/main/solo-img-ia.tar.gz
       - key: DATABASE_URL
