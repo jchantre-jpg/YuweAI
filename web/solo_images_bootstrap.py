@@ -65,7 +65,9 @@ def fetch_if_needed(img_dir: Path) -> int:
         if parts_raw:
             print("[solo bootstrap] Descargando SOLO_IMG_TARBALL_PARTS ...", flush=True)
             part_files: list[Path] = []
-            for i, part_url in enumerate(p.strip() for p in parts_raw.split(",") if p.strip(), start=1):
+            for i, part_url in enumerate(
+                (p.strip() for p in parts_raw.split(",") if p.strip()), start=1
+            ):
                 part_path = Path(tmp) / f"part{i:03d}"
                 print(f"[solo bootstrap] Parte {i}: {part_url[:80]}...", flush=True)
                 _curl_download(part_url, part_path)
