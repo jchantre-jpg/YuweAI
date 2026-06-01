@@ -54,8 +54,21 @@ COPY corpus/generadas-img-ia-solo/ /app/corpus/generadas-img-ia-solo/
 # o con prefijo generadas-img-ia-solo/ (tar -C corpus generadas-img-ia-solo en Windows).
 # Render expone las variables del servicio como Docker ARG durante el build (mismo nombre que la env).
 ARG SOLO_IMG_TARBALL_URL=
+ARG SOLO_IMG_TARBALL_PARTS=
 RUN set -eux; \
-    if [ -n "$SOLO_IMG_TARBALL_URL" ]; then \
+    if [ -n "$SOLO_IMG_TARBALL_PARTS" ]; then \
+      echo "Downloading SOLO_IMG_TARBALL_PARTS ..."; \
+      rm -f /tmp/solo_img_ia.tar.gz /tmp/solo_img_part_*; \
+      part=0; \
+      OLDIFS="$IFS"; IFS=','; \
+      for url in $SOLO_IMG_TARBALL_PARTS; do \
+        part=$((part + 1)); \
+        curl -fSL "$url" -o "/tmp/solo_img_part_$(printf '%03d' "$part")"; \
+      done; \
+      IFS="$OLDIFS"; \
+      cat /tmp/solo_img_part_* > /tmp/solo_img_ia.tar.gz; \
+      rm -f /tmp/solo_img_part_*; \
+    elif [ -n "$SOLO_IMG_TARBALL_URL" ]; then \
       echo "Downloading SOLO_IMG_TARBALL_URL ..."; \
       curl -fSL "$SOLO_IMG_TARBALL_URL" -o /tmp/solo_img_ia.tar.gz; \
       rm -rf /tmp/solo_ex && mkdir -p /tmp/solo_ex; \
