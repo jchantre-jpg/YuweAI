@@ -23,10 +23,10 @@ services:
       - key: AVI_SKIP_DEMO_USERS
         value: "1"
       # Build + runtime: URL directa a .tar.gz con corpus/generadas-img-ia-solo (PNG + JSON).
-      # Hugging Face (archivo completo ~5 GB). Alternativa multi-parte GitHub: SOLO_IMG_TARBALL_PARTS.
-      - key: SOLO_IMG_TARBALL_URL
-        value: https://huggingface.co/Juliana08/yuwe-solo-img-tarball/resolve/main/solo-img-ia.tar.gz
+      # Opcion A (GitHub, 3 partes <2GB). Opcion B (HF archivo unico): SOLO_IMG_TARBALL_URL.
       - key: SOLO_IMG_TARBALL_PARTS
+        value: https://github.com/jchantre-jpg/YuweAI/releases/download/solo-img-ia-v2/solo-img-ia.tar.gz.part001,https://github.com/jchantre-jpg/YuweAI/releases/download/solo-img-ia-v2/solo-img-ia.tar.gz.part002,https://github.com/jchantre-jpg/YuweAI/releases/download/solo-img-ia-v2/solo-img-ia.tar.gz.part003
+      - key: SOLO_IMG_TARBALL_URL
         sync: false
       - key: DATABASE_URL
         sync: false
