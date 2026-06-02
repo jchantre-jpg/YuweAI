@@ -1,7 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getDictionary, getDictionaryFull, getStats } from './api'
+import { getDictionary, getDictionaryFull, getStats, submitTeacherContent } from './api'
 import { DictionaryTermImage } from './DictionaryTermImage'
+import {
+  bumpDictionaryImagePriority,
+  prefetchDictionaryImages,
+  preloadDictionaryImageLinks,
+} from './dictionaryImagePrefetch'
 import { examplePhrases, phoneticHint, speakText } from './corpusUtils'
+import {
+  buildDictCategoryOptions,
+  categoryDisplayLabel,
+  categoryMatchesRow,
+  dedupeCatalogByTermId,
+  isHiddenDictCategory,
+  mergeCatalogRows,
+  resolveDictSemanticSlug,
+} from './dictionaryCatalogUtils'
 import {
   ArrowLeft,
   Bookmark,
@@ -18,15 +32,6 @@ import {
   Volume2,
   BookOpen,
 } from 'lucide-react'
-
-function labelSlug(value) {
-  return String(value || '').replaceAll('_', ' ')
-}
-
-function titleLabel(value) {
-  const cl = labelSlug(value)
-  return cl ? cl.charAt(0).toUpperCase() + cl.slice(1) : 'Categoría'
-}
 
 function cleanWord(value) {
   return String(value || '—').replace(/^(el|la|los|las|un|una|unos|unas)\s+/i, '').trim() || '—'
@@ -45,21 +50,6 @@ function frequencyTier(id) {
 }
 
 const CATEGORY_ROW_ICONS = [Sprout, UsersRound, Leaf, BookOpen, MapPin]
-
-function categoryMatchesRow(rowCat, slug) {
-  const a = String(rowCat || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_')
-  const b = String(slug || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_')
-  if (!b || b === 'todas') return true
-  if (a === b) return true
-  if (b === 'comida' && (a === 'alimentos' || a === 'frutas_verduras' || a === 'comida')) return true
-  return false
-}
 
 /** Una fila del listado (termino + categoria semantica para filtros). */
 function rowFromLexTerm(term, categoryTag) {
@@ -102,29 +92,11 @@ async function mergeCategoryChunks(catList, perCatLimit) {
         .catch(() => []),
     ),
   )
-  const seen = new Set()
-  const out = []
-  for (const part of chunks) {
-    for (const row of part) {
-      const k = `${row.term.id}-${row.category}`
-      if (seen.has(k)) continue
-      seen.add(k)
-      out.push(row)
-    }
-  }
-  return out
+  return dedupeCatalogByTermId(chunks.flat())
 }
 
 function dedupeCatalogRows(a, b) {
-  const seen = new Set(a.map((r) => `${r.term.id}-${r.category}`))
-  const out = [...a]
-  for (const row of b) {
-    const k = `${row.term.id}-${row.category}`
-    if (seen.has(k)) continue
-    seen.add(k)
-    out.push(row)
-  }
-  return out
+  return mergeCatalogRows(a, b)
 }
 
 export function StudentDictionaryRoute({
@@ -136,6 +108,7 @@ export function StudentDictionaryRoute({
   categories: appCategories,
   preferredTab,
   onPreferredTabConsumed,
+  userRole,
 }) {
   const fallbackCats = useMemo(
     () => ['comida', 'alimentos', 'animales', 'familia_personas', 'numeros'],
@@ -153,14 +126,38 @@ export function StudentDictionaryRoute({
   const [pageSize, setPageSize] = useState(12)
   const [listMode, setListMode] = useState('grid')
   const [selected, setSelected] = useState(null)
+  const [showPropose, setShowPropose] = useState(true)
+  const [submission, setSubmission] = useState({
+    kind: 'termino',
+    title: '',
+    espanol: '',
+    nasa_yuwe: '',
+    translation: '',
+    image_url: '',
+    audio_url: '',
+    notes: '',
+  })
+  const [submittingWord, setSubmittingWord] = useState(false)
+  const isTeacher = userRole === 'docente'
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
 
   const catFingerprint = useMemo(() => catOptions.join('\0'), [catOptions])
 
   useEffect(() => {
     if (!preferredTab) return
-    if (preferredTab === 'categoria' && appCategory) setSemanticSlug(appCategory)
+    if (preferredTab === 'categoria' && appCategory) {
+      setSemanticSlug(resolveDictSemanticSlug(appCategory))
+    }
     onPreferredTabConsumed?.()
   }, [preferredTab, appCategory, onPreferredTabConsumed])
+
+  useEffect(() => {
+    if (semanticSlug !== 'todas' && isHiddenDictCategory(semanticSlug)) {
+      setSemanticSlug('todas')
+    }
+  }, [semanticSlug, catalog])
+
+  const dictCategoryOptions = useMemo(() => buildDictCategoryOptions(catalog), [catalog])
 
   useEffect(() => {
     let cancelled = false
@@ -208,7 +205,7 @@ export function StudentDictionaryRoute({
         }
 
         if (cancelled) return
-        setCatalog(merged)
+        setCatalog(dedupeCatalogByTermId(merged))
         if (!cancelled && merged.length === 0) {
           notify(t('dict.loadEmpty'))
         }
@@ -263,13 +260,96 @@ export function StudentDictionaryRoute({
     return filtered.slice(start, start + pageSize)
   }, [filtered, pageSafe, pageSize])
 
+  const pageImageSources = useMemo(
+    () => pageSlice.map((r) => r.term.image_url).filter(Boolean),
+    [pageSlice],
+  )
+
+  /** Precarga: primero las de la página visible (orden del listado), luego la página siguiente en segundo plano. */
+  useEffect(() => {
+    if (loading || !pageImageSources.length) return undefined
+    let cancelled = false
+    const urgent = listMode === 'list' ? 4 : 12
+    void prefetchDictionaryImages(pageImageSources, { urgentCount: urgent, concurrency: 6 }).then(() => {
+      if (cancelled) return
+      const start = pageSafe * pageSize
+      const nextUrls = filtered
+        .slice(start, start + pageSize)
+        .map((r) => r.term.image_url)
+        .filter(Boolean)
+      if (nextUrls.length) {
+        void prefetchDictionaryImages(nextUrls, { urgentCount: 0, concurrency: 4 })
+      }
+    })
+    const cleanupPreload = preloadDictionaryImageLinks(pageImageSources, listMode === 'list' ? 3 : 6)
+    return () => {
+      cancelled = true
+      cleanupPreload()
+    }
+  }, [pageImageSources, pageSafe, pageSize, filtered, loading, listMode])
+
+  useEffect(() => {
+    if (!selected?.term?.image_url) return undefined
+    const heroSrc = selected.term.image_url
+    const relatedSrc = catalog
+      .filter((r) => r.category === selected.category && r.term.id !== selected.term.id && r.term.image_url)
+      .slice(0, 6)
+      .map((r) => r.term.image_url)
+    void prefetchDictionaryImages([heroSrc, ...relatedSrc], { urgentCount: 4, concurrency: 4 })
+    return preloadDictionaryImageLinks([heroSrc, ...relatedSrc], 4)
+  }, [selected, catalog])
+
   const openRow = useCallback(
     (row) => {
+      if (row.term.image_url) bumpDictionaryImagePriority(row.term.image_url)
       setSelected(row)
       setAppCategory?.(row.category)
     },
     [setAppCategory],
   )
+
+  const prefetchPage = useCallback(
+    (pageNum) => {
+      const start = (pageNum - 1) * pageSize
+      const urls = filtered
+        .slice(start, start + pageSize)
+        .map((r) => r.term.image_url)
+        .filter(Boolean)
+      if (urls.length) void prefetchDictionaryImages(urls, { urgentCount: 6, concurrency: 6 })
+    },
+    [filtered, pageSize],
+  )
+
+  async function sendWordProposal(ev) {
+    ev.preventDefault()
+    if (!submission.title.trim() && !submission.nasa_yuwe.trim()) {
+      notify(t('teacher.submissionNeedTitle'))
+      return
+    }
+    setSubmittingWord(true)
+    try {
+      await submitTeacherContent(token, {
+        ...submission,
+        title: (submission.title || submission.nasa_yuwe).trim(),
+      })
+      setSubmission({
+        kind: 'termino',
+        title: '',
+        espanol: '',
+        nasa_yuwe: '',
+        translation: '',
+        image_url: '',
+        audio_url: '',
+        notes: '',
+      })
+      notify(t('teacher.submissionSentOk'))
+      setShowPropose(false)
+    } catch (e) {
+      notify(e.message || String(e))
+    } finally {
+      setSubmittingWord(false)
+    }
+  }
 
   const exportDictionary = useCallback(() => {
     const header = 'nasa_yuwe,espanol,categoria,pos\n'
@@ -306,7 +386,11 @@ export function StudentDictionaryRoute({
     const pos = grammarRoleSpanish(sel.espanol)
     const posLong = pos === 'Verbo' ? 'Verbo' : 'Sustantivo común'
     const dots = frequencyTier(sel.id)
-    const relatedPool = catalog.filter((r) => r.category === selCat && r.term.id !== sel.id)
+    const relatedPool = catalog.filter((r) => {
+      if (r.term.id === sel.id) return false
+      if (isHiddenDictCategory(selCat)) return Boolean(r.term.image_url)
+      return categoryMatchesRow(r.category, selCat)
+    })
     const related = [...relatedPool.filter((r) => r.term.image_url), ...relatedPool.filter((r) => !r.term.image_url)].slice(
       0,
       6,
@@ -361,13 +445,13 @@ export function StudentDictionaryRoute({
           <div className="yuwe-dict-detail-split">
             <div className="yuwe-dict-detail-maincard">
               {sel.image_url ? (
-                <div className="yuwe-dict-hero-visual">
-                  <DictionaryTermImage
-                    src={sel.image_url}
-                    alt={`Ilustración: ${cleanWord(sel.espanol)}`}
-                    className="yuwe-dict-hero-img dict-gallery-img"
-                  />
-                </div>
+                <DictionaryTermImage
+                  src={sel.image_url}
+                  alt={`Ilustración: ${cleanWord(sel.espanol)}`}
+                  className="yuwe-dict-hero-img dict-gallery-img"
+                  variant="hero"
+                  priority="high"
+                />
               ) : null}
 
               <div className="yuwe-dict-lang-row">
@@ -401,16 +485,16 @@ export function StudentDictionaryRoute({
               <section className="yuwe-dict-related-wrap">
                 <h3>Palabras relacionadas</h3>
                 <div className="yuwe-dict-related-row">
-                  {related.map((r) => (
+                  {related.map((r, relIdx) => (
                     <button key={`${r.term.id}-${r.category}`} type="button" className="yuwe-dict-related-chip" onClick={() => openRow(r)}>
                       {r.term.image_url ? (
-                        <span className="yuwe-dict-related-thumb">
-                          <DictionaryTermImage
-                            src={r.term.image_url}
-                            alt=""
-                            className="yuwe-dict-related-thumb-img"
-                          />
-                        </span>
+                        <DictionaryTermImage
+                          src={r.term.image_url}
+                          alt=""
+                          className="yuwe-dict-related-thumb-img"
+                          variant="thumb"
+                          priority={relIdx < 2 ? 'high' : 'low'}
+                        />
                       ) : null}
                       <span className="yuwe-dict-related-chip-body">
                         <strong>{cleanWord(r.term.nasa_yuwe)}</strong>
@@ -429,7 +513,15 @@ export function StudentDictionaryRoute({
             <aside className="yuwe-dict-side-meta" aria-label="Información de la entrada">
               <article className="yuwe-dict-meta-card">
                 <h4>Información cultural</h4>
-                <p>Vocabulario del ámbito «{titleLabel(selCat)}» que refuerza vínculos con territorio y memoria lingüística propia.</p>
+                <p>
+                  {categoryDisplayLabel(selCat)
+                    ? `Vocabulario del ámbito «${categoryDisplayLabel(selCat)}» vinculado con territorio y memoria lingüística.`
+                    : 'Entrada del léxico general del corpus AVI, útil en conversación y actividades guiadas.'}
+                </p>
+              </article>
+              <article className="yuwe-dict-meta-card">
+                <h4>Categoría temática</h4>
+                <p>{categoryDisplayLabel(selCat) || 'Todas (léxico general)'}</p>
               </article>
               <article className="yuwe-dict-meta-card">
                 <h4>Categoría gramatical</h4>
@@ -495,26 +587,11 @@ export function StudentDictionaryRoute({
         <aside className="yuwe-dict-filters">
           <h3 className="yuwe-dict-filters-heading">Filtrar palabras</h3>
           <label className="yuwe-dict-field">
-            <span>Búsqueda rápida</span>
-            <input value={filterQuery} onChange={(e) => setFilterQuery(e.target.value)} placeholder="Texto…" />
-          </label>
-          <label className="yuwe-dict-field">
             <span>Categoría gramatical</span>
             <select value={grammarFilter} onChange={(e) => setGrammarFilter(e.target.value)}>
               <option value="todos">Todas</option>
               <option value="Sustantivo">Sustantivo</option>
               <option value="Verbo">Verbo</option>
-            </select>
-          </label>
-          <label className="yuwe-dict-field">
-            <span>Categoría semántica</span>
-            <select value={semanticSlug} onChange={(e) => setSemanticSlug(e.target.value)}>
-              <option value="todas">Todas las categorías</option>
-              {catOptions.map((c) => (
-                <option key={c} value={c}>
-                  {titleLabel(c)}
-                </option>
-              ))}
             </select>
           </label>
           <label className="yuwe-dict-field">
@@ -537,17 +614,112 @@ export function StudentDictionaryRoute({
             Limpiar filtros
           </button>
 
-          <section className="yuwe-dict-sem-group">
-            <h4>Categorías semánticas</h4>
-            <div className="yuwe-dict-chip-list">
-              <button type="button" className={`yuwe-dict-chip${semanticSlug === 'todas' ? ' active' : ''}`} onClick={() => setSemanticSlug('todas')}>
-                <LayoutGrid size={16} aria-hidden /> Todas
+          {isTeacher ? (
+            <section className="yuwe-dict-propose-section">
+              <button
+                type="button"
+                className="yuwe-dict-propose-toggle"
+                onClick={() => setShowPropose((v) => !v)}
+                aria-expanded={showPropose}
+              >
+                <BookOpen size={16} aria-hidden /> {t('teacher.proposeSectionTitle')}
               </button>
-              {catOptions.slice(0, 9).map((c, idx) => {
+              {showPropose ? (
+                <form className="yuwe-dict-propose-form" onSubmit={sendWordProposal}>
+                  <p className="yuwe-dict-propose-hint">{t('teacher.proposeSectionHint')}</p>
+                  <label className="yuwe-dict-field">
+                    <span>{t('teacher.proposePhTitle')}</span>
+                    <input
+                      value={submission.title}
+                      onChange={(e) => setSubmission((s) => ({ ...s, title: e.target.value }))}
+                      placeholder={t('teacher.proposePhTitle')}
+                    />
+                  </label>
+                  <label className="yuwe-dict-field">
+                    <span>{t('teacher.proposePhEspanol')}</span>
+                    <input
+                      value={submission.espanol}
+                      onChange={(e) => setSubmission((s) => ({ ...s, espanol: e.target.value }))}
+                      placeholder={t('teacher.proposePhEspanol')}
+                    />
+                  </label>
+                  <label className="yuwe-dict-field">
+                    <span>{t('teacher.proposePhNasa')}</span>
+                    <input
+                      value={submission.nasa_yuwe}
+                      onChange={(e) => setSubmission((s) => ({ ...s, nasa_yuwe: e.target.value }))}
+                      placeholder={t('teacher.proposePhNasa')}
+                      required
+                    />
+                  </label>
+                  <label className="yuwe-dict-field">
+                    <span>{t('teacher.proposePhTrans')}</span>
+                    <input
+                      value={submission.translation}
+                      onChange={(e) => setSubmission((s) => ({ ...s, translation: e.target.value }))}
+                      placeholder={t('teacher.proposePhTrans')}
+                    />
+                  </label>
+                  <label className="yuwe-dict-field">
+                    <span>{t('teacher.proposePhImg')}</span>
+                    <input
+                      type="url"
+                      value={submission.image_url}
+                      onChange={(e) => setSubmission((s) => ({ ...s, image_url: e.target.value }))}
+                      placeholder="https://…/imagen.png"
+                    />
+                  </label>
+                  <label className="yuwe-dict-field">
+                    <span>{t('teacher.proposePhAudio')}</span>
+                    <input
+                      type="url"
+                      value={submission.audio_url}
+                      onChange={(e) => setSubmission((s) => ({ ...s, audio_url: e.target.value }))}
+                      placeholder="https://…/audio.mp3"
+                    />
+                  </label>
+                  <label className="yuwe-dict-field">
+                    <span>{t('teacher.proposePhNotes')}</span>
+                    <textarea
+                      value={submission.notes}
+                      onChange={(e) => setSubmission((s) => ({ ...s, notes: e.target.value }))}
+                      placeholder={t('teacher.proposePhNotes')}
+                      rows={2}
+                    />
+                  </label>
+                  <button type="submit" className="yuwe-dict-propose-submit" disabled={submittingWord}>
+                    {submittingWord ? t('teacher.sending') : t('teacher.proposeSubmitBtn')}
+                  </button>
+                </form>
+              ) : null}
+            </section>
+          ) : null}
+
+          <section className="yuwe-dict-sem-group">
+            <h4>Categorías temáticas</h4>
+            <p className="yuwe-dict-sem-hint">«Todas» muestra el léxico completo. Elige un tema para acotar.</p>
+            <div className="yuwe-dict-chip-list">
+              <button
+                type="button"
+                className={`yuwe-dict-chip${semanticSlug === 'todas' ? ' active' : ''}`}
+                onClick={() => setSemanticSlug('todas')}
+              >
+                <LayoutGrid size={16} aria-hidden />
+                <span className="yuwe-dict-chip-label">Todas</span>
+                <span className="yuwe-dict-chip-count">{catalog.length}</span>
+              </button>
+              {dictCategoryOptions.map((opt, idx) => {
                 const Ico = CATEGORY_ROW_ICONS[idx % CATEGORY_ROW_ICONS.length]
                 return (
-                  <button key={c} type="button" className={`yuwe-dict-chip${semanticSlug === c ? ' active' : ''}`} onClick={() => setSemanticSlug(c)}>
-                    <Ico size={16} aria-hidden /> {titleLabel(c)}
+                  <button
+                    key={opt.slug}
+                    type="button"
+                    className={`yuwe-dict-chip${semanticSlug === opt.slug ? ' active' : ''}`}
+                    onClick={() => setSemanticSlug(opt.slug)}
+                  >
+                    <Ico size={16} aria-hidden />
+                    <span className="yuwe-dict-chip-label">{opt.label}</span>
+                    <span className="yuwe-dict-chip-count">{opt.count}</span>
                   </button>
                 )
               })}
@@ -557,17 +729,28 @@ export function StudentDictionaryRoute({
 
         <div className="yuwe-dict-main">
           <div className="yuwe-dict-toolbar">
-            <p className="yuwe-dict-count">
-              {filtered.length === 1 ? (
-                <>
-                  <strong>1</strong> {t('dict.foundCountOne')}
-                </>
-              ) : (
-                <>
-                  <strong>{filtered.length}</strong> {t('dict.foundCountMany')}
-                </>
-              )}
-            </p>
+            <div className="yuwe-dict-count-block">
+              <p className="yuwe-dict-count">
+                {semanticSlug !== 'todas' ? (
+                  <>
+                    <strong>{filtered.length}</strong> en {categoryDisplayLabel(semanticSlug)}
+                  </>
+                ) : filterQuery.trim() || grammarFilter !== 'todos' ? (
+                  <>
+                    <strong>{filtered.length}</strong> de {catalog.length} palabras
+                  </>
+                ) : (
+                  <>
+                    <strong>{catalog.length}</strong> palabras en el diccionario
+                  </>
+                )}
+              </p>
+              {totalPages > 1 ? (
+                <p className="yuwe-dict-page-hint">
+                  Página {pageSafe} de {totalPages}
+                </p>
+              ) : null}
+            </div>
             <div className="yuwe-dict-toolbar-tools">
               <div className="yuwe-dict-toggle" role="group" aria-label="Vista">
                 <button type="button" className={listMode === 'grid' ? 'on' : ''} onClick={() => setListMode('grid')} aria-pressed={listMode === 'grid'}>
@@ -594,29 +777,52 @@ export function StudentDictionaryRoute({
           ) : (
             <>
               <div className={`yuwe-dict-grid${listMode === 'list' ? ' list-mode' : ''}`}>
-                {pageSlice.map((row) => {
+                {pageSlice.map((row, cardIdx) => {
                   const g = grammarRoleSpanish(row.term.espanol)
+                  const hasImg = Boolean(row.term.image_url)
+                  const catLabel = categoryDisplayLabel(row.category)
+                  const imgPriority = cardIdx < 8 ? 'high' : cardIdx < 16 ? 'auto' : 'low'
                   return (
-                    <button key={`${row.term.id}-${row.category}`} type="button" className="yuwe-dict-word-card" onClick={() => openRow(row)}>
-                      {row.term.image_url ? (
-                        <div className="yuwe-dict-card-img">
-                          <DictionaryTermImage
-                            src={row.term.image_url}
-                            alt={`Ilustración: ${cleanWord(row.term.espanol)}`}
-                          />
+                    <button
+                      key={`${row.term.id}-${row.category}`}
+                      type="button"
+                      className={`yuwe-dict-word-card${hasImg ? ' yuwe-dict-word-card--has-img' : ''}`}
+                      onClick={() => openRow(row)}
+                      onMouseEnter={() => {
+                        if (row.term.image_url) bumpDictionaryImagePriority(row.term.image_url)
+                      }}
+                      onFocus={() => {
+                        if (row.term.image_url) bumpDictionaryImagePriority(row.term.image_url)
+                      }}
+                    >
+                      {hasImg ? (
+                        <DictionaryTermImage
+                          src={row.term.image_url}
+                          alt={`Ilustración: ${cleanWord(row.term.espanol)}`}
+                          variant="card"
+                          priority={imgPriority}
+                        />
+                      ) : (
+                        <div className="yuwe-dict-card-img yuwe-dict-card-img--text-only" aria-hidden>
+                          <span>{cleanWord(row.term.nasa_yuwe).charAt(0)}</span>
                         </div>
-                      ) : null}
-                      <strong>{cleanWord(row.term.nasa_yuwe)}</strong>
-                      <small className="yuwe-dict-card-es">{cleanWord(row.term.espanol)}</small>
-                      <span className="yuwe-dict-card-pos">{g}</span>
-                      <span className="yuwe-dict-card-audio-pair">
-                        <span title="Esp">
-                          <Volume2 size={14} aria-hidden />
-                        </span>
-                        <span title="Ny">
-                          <Volume2 size={14} aria-hidden />
-                        </span>
-                      </span>
+                      )}
+                      <div className="yuwe-dict-card-body">
+                        <strong>{cleanWord(row.term.nasa_yuwe)}</strong>
+                        <small className="yuwe-dict-card-es">{cleanWord(row.term.espanol)}</small>
+                        <div className="yuwe-dict-card-meta">
+                          <span className="yuwe-dict-card-pos">{g}</span>
+                          {catLabel ? <span className="yuwe-dict-card-cat">{catLabel}</span> : null}
+                          <span className="yuwe-dict-card-audio-pair">
+                            <span title="Esp">
+                              <Volume2 size={14} aria-hidden />
+                            </span>
+                            <span title="Ny">
+                              <Volume2 size={14} aria-hidden />
+                            </span>
+                          </span>
+                        </div>
+                      </div>
                     </button>
                   )
                 })}
@@ -626,18 +832,24 @@ export function StudentDictionaryRoute({
 
               {totalPages > 1 ? (
                 <nav className="yuwe-dict-pagination" aria-label="Paginación">
-                  <button type="button" disabled={pageSafe <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  <button type="button" disabled={pageSafe <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} onMouseEnter={() => prefetchPage(pageSafe - 1)}>
                     Anterior
                   </button>
                   <div className="yuwe-dict-page-nums">
                     {pageNumbers.map((n) => (
-                      <button key={n} type="button" className={n === pageSafe ? 'current' : ''} onClick={() => setPage(n)}>
+                      <button
+                        key={n}
+                        type="button"
+                        className={n === pageSafe ? 'current' : ''}
+                        onClick={() => setPage(n)}
+                        onMouseEnter={() => prefetchPage(n)}
+                      >
                         {n}
                       </button>
                     ))}
                     {totalPages > lastNum ? <span aria-hidden>…</span> : null}
                   </div>
-                  <button type="button" disabled={pageSafe >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                  <button type="button" disabled={pageSafe >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} onMouseEnter={() => prefetchPage(pageSafe + 1)}>
                     Siguiente
                   </button>
                 </nav>

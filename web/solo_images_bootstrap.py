@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 _MIN_PNG = int(os.environ.get("SOLO_IMG_MIN_PNG", "100"))
+_TARGET_PNG = int(os.environ.get("SOLO_IMG_TARGET_PNG", "3600"))
 _lock = threading.Lock()
 _started = False
 
@@ -20,22 +21,30 @@ def png_count(img_dir: Path) -> int:
     return sum(1 for _ in img_dir.rglob("*.png"))
 
 
-def _extract_tarball(tar_path: Path, dest: Path) -> None:
+def is_corpus_complete(img_dir: Path) -> bool:
+    return png_count(img_dir) >= _TARGET_PNG
+
+
+def _merge_tree(src: Path, dest: Path) -> None:
+    """Copia archivos sin borrar categorias ya presentes (reanuda extracciones parciales)."""
     dest.mkdir(parents=True, exist_ok=True)
+    for item in src.rglob("*"):
+        if not item.is_file():
+            continue
+        rel = item.relative_to(src)
+        out = dest / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(item, out)
+
+
+def _extract_tarball(tar_path: Path, dest: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="solo_ex_") as tmp:
         root = Path(tmp)
         with tarfile.open(tar_path, "r:gz") as tf:
             tf.extractall(root)
         nested = root / "generadas-img-ia-solo"
         src = nested if nested.is_dir() else root
-        for item in src.iterdir():
-            out = dest / item.name
-            if item.is_dir():
-                if out.exists():
-                    shutil.rmtree(out)
-                shutil.copytree(item, out)
-            else:
-                shutil.copy2(item, out)
+        _merge_tree(src, dest)
 
 
 def _curl_download(url: str, out: Path) -> None:
@@ -47,11 +56,13 @@ def _curl_download(url: str, out: Path) -> None:
 
 
 def fetch_if_needed(img_dir: Path) -> int:
-    """Descarga tarball si hay pocos PNG. Devuelve conteo final."""
+    """Descarga tarball si faltan PNG. Devuelve conteo final."""
     n = png_count(img_dir)
-    if n >= _MIN_PNG:
-        print(f"[solo bootstrap] OK: {n} PNG en {img_dir}", flush=True)
+    if is_corpus_complete(img_dir):
+        print(f"[solo bootstrap] Corpus completo: {n} PNG en {img_dir}", flush=True)
         return n
+    if n >= _MIN_PNG:
+        print(f"[solo bootstrap] Parcial ({n}/{_TARGET_PNG}); reanudando descarga...", flush=True)
 
     parts_raw = (os.environ.get("SOLO_IMG_TARBALL_PARTS") or "").strip()
     url = (os.environ.get("SOLO_IMG_TARBALL_URL") or "").strip()

@@ -3334,8 +3334,31 @@ def teacher_handle_post(handler, route: str, data: dict):
                 name = (data.get("name") or "").strip()
                 if not name:
                     return {"error": "Por favor diligenciar el nombre del grupo"}, 400
-                edu = (data.get("education_level") or "").strip() or "General"
+                dup = conn.execute(
+                    """
+                    SELECT id FROM teacher_groups
+                    WHERE teacher_user_id = ? AND LOWER(TRIM(name)) = LOWER(?)
+                    """,
+                    (teacher_id, name),
+                ).fetchone()
+                if dup:
+                    return {"error": "Ya existe un grupo con ese nombre. Elige otro nombre."}, 409
+                valid_grades = {
+                    "Transición", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
+                }
                 grade = (data.get("grade") or "").strip()
+                if grade and grade not in valid_grades:
+                    return {"error": "Grado inválido. Use Transición o grados del 1 al 11."}, 400
+                edu = (data.get("education_level") or "").strip()
+                if not edu:
+                    if grade in ("Transición",):
+                        edu = "Preescolar"
+                    elif grade in ("1", "2", "3", "4", "5"):
+                        edu = "Primaria"
+                    elif grade in ("6", "7", "8", "9", "10", "11"):
+                        edu = "Secundaria"
+                    else:
+                        edu = "General"
                 grade_id = int(data.get("grade_id", 0) or 0)
                 diff = (data.get("difficulty_default") or "intermedio").strip()
                 if grade_id > 0:
@@ -3501,6 +3524,73 @@ def teacher_handle_post(handler, route: str, data: dict):
                 )
                 conn.commit()
                 return {"ok": True, "submission_id": sid, "status": "pending"}, 201
+            if route == "/api/teacher/activity-assign":
+                aid = int(data.get("activity_id", 0) or 0)
+                group_id = int(data.get("group_id", 0) or 0)
+                grade_id = int(data.get("grade_id", 0) or 0)
+                if not aid:
+                    return {"error": "Actividad invalida."}, 400
+                if not group_id and not grade_id:
+                    return {"error": "Selecciona un grupo o grado institucional."}, 400
+                row = conn.execute(
+                    """
+                    SELECT id FROM learning_activities
+                    WHERE id = ? AND creator_user_id = ? AND creator_role = 'docente'
+                    """,
+                    (aid, teacher_id),
+                ).fetchone()
+                if not row:
+                    return {"error": "Actividad no encontrada."}, 404
+                if group_id:
+                    g = conn.execute(
+                        "SELECT id FROM teacher_groups WHERE id = ? AND teacher_user_id = ?",
+                        (group_id, teacher_id),
+                    ).fetchone()
+                    if not g:
+                        return {"error": "Grupo invalido."}, 404
+                if grade_id:
+                    gr = conn.execute(
+                        "SELECT id FROM grades WHERE id = ? AND active = 1",
+                        (grade_id,),
+                    ).fetchone()
+                    if not gr:
+                        return {"error": "Grado invalido."}, 404
+                now = time.time()
+                existing = conn.execute(
+                    """
+                    SELECT id FROM activity_assignments
+                    WHERE activity_id = ? AND group_id IS ? AND grade_id IS ?
+                    """,
+                    (aid, group_id or None, grade_id or None),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """
+                        UPDATE activity_assignments
+                        SET assigned_by_user_id = ?, assigned_at = ?
+                        WHERE id = ?
+                        """,
+                        (teacher_id, now, existing["id"]),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO activity_assignments (
+                            activity_id, grade_id, group_id, student_user_id, assigned_by_user_id, assigned_at
+                        ) VALUES (?, ?, ?, NULL, ?, ?)
+                        """,
+                        (aid, grade_id or None, group_id or None, teacher_id, now),
+                    )
+                conn.execute(
+                    """
+                    UPDATE learning_activities
+                    SET status = 'active', updated_at = ?
+                    WHERE id = ? AND creator_user_id = ?
+                    """,
+                    (now, aid, teacher_id),
+                )
+                conn.commit()
+                return {"ok": True, "activity_id": aid, "message": "Actividad asignada correctamente."}, 200
             if route == "/api/teacher/activity-update":
                 aid = int(data.get("activity_id", 0) or 0)
                 if not aid:
@@ -3674,9 +3764,30 @@ def teacher_handle_get(handler, route: str, parsed):
                     (teacher_id,),
                 ).fetchall()
                 acts = [{k: r[k] for k in r.keys()} for r in rows]
+                catalog_rows = conn.execute(
+                    """
+                    SELECT id, title, description, category, difficulty, mode, status, created_at,
+                           creator_user_id
+                    FROM learning_activities
+                    WHERE status = 'active'
+                    ORDER BY created_at DESC
+                    LIMIT 300
+                    """,
+                ).fetchall()
+                catalog = [{k: r[k] for k in r.keys()} for r in catalog_rows]
+                assigned_rows = conn.execute(
+                    """
+                    SELECT DISTINCT aa.activity_id
+                    FROM activity_assignments aa
+                    JOIN teacher_groups g ON g.id = aa.group_id
+                    WHERE g.teacher_user_id = ? AND aa.group_id IS NOT NULL
+                    """,
+                    (teacher_id,),
+                ).fetchall()
+                assigned_ids = [int(r["activity_id"]) for r in assigned_rows if r["activity_id"]]
             finally:
                 conn.close()
-        return {"activities": acts}, 200
+        return {"activities": acts, "catalog": catalog, "assigned_ids": assigned_ids}, 200
     if route == "/api/teacher/reports-summary":
         raw_days = (parse_qs(parsed.query).get("days") or ["30"])[0]
         try:
@@ -5170,7 +5281,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "model": ENGINE.model.get("model_name", "runtime"),
                     "training_rows": ENGINE.model.get("training_rows", 0),
                     "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
-                    "solo_images_ready": solo_images_bootstrap.png_count(SOLO_IMG_DIR) >= 100,
+                    "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
                     "message": "AVI operativo",
                 },
                 ensure_ascii=False,
@@ -5345,7 +5456,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "model": ENGINE.model.get("model_name", "runtime"),
                     "training_rows": ENGINE.model.get("training_rows", 0),
                     "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
-                    "solo_images_ready": solo_images_bootstrap.png_count(SOLO_IMG_DIR) >= 100,
+                    "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
                     "message": "AVI operativo",
                 }
             )
@@ -5459,11 +5570,27 @@ class AVIHandler(BaseHTTPRequestHandler):
             if p.suffix.lower() != ".png":
                 self.send_error(404, "Solo PNG")
                 return
-            data = p.read_bytes()
+            try:
+                st = p.stat()
+            except OSError:
+                self.send_error(404)
+                return
+            etag = f'"{int(st.st_mtime)}-{st.st_size}"'
+            inm = self.headers.get("If-None-Match", "").strip()
             acao = _cors_allow_origin(self)
+            if inm and inm == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "public, max-age=604800, immutable")
+                if acao:
+                    self.send_header("Access-Control-Allow-Origin", acao)
+                self.end_headers()
+                return
+            data = p.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "image/png")
-            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Cache-Control", "public, max-age=604800, immutable")
+            self.send_header("ETag", etag)
             self.send_header("X-Content-Type-Options", "nosniff")
             if acao:
                 self.send_header("Access-Control-Allow-Origin", acao)

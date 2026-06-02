@@ -88,13 +88,14 @@ import {
   StudentLearnRoute,
   StudentPracticeRoute,
   TeacherActivitiesPanel,
+  TeacherCatalogActivitiesPanel,
   TeacherCalendarPanel,
   TeacherDashboard,
   TeacherGroupsPanel,
   TeacherReportsPanel,
-  TeacherResourcesPanel,
 } from './RoleScreens'
 import { createTranslator, getThemeDataAttr } from './i18n'
+import { isHiddenDictCategory, normalizeDictCategory } from './dictionaryCatalogUtils'
 import './App.css'
 import logoImg from './assets/imagenes/logo.png'
 import welcomeImg from './assets/imagenes/bienvenida.png'
@@ -114,6 +115,7 @@ const NAV_REGISTRY = {
   actividades_hub: { labelKey: 'nav.practicar', hintKey: 'navHint.actividades', icon: Target },
   docente_grupos: { labelKey: 'nav.docente_grupos', hintKey: 'navHint.docente_grupos', icon: UsersRound },
   docente_actividades: { labelKey: 'nav.docente_actividades', hintKey: 'navHint.docente_actividades', icon: PenLine },
+  docente_catalogo_actividades: { labelKey: 'nav.docente_catalogo_actividades', hintKey: 'navHint.docente_catalogo_actividades', icon: Target },
   docente_reportes: { labelKey: 'nav.docente_reportes', hintKey: 'navHint.docente_reportes', icon: BarChart3 },
   docente_recursos: { labelKey: 'nav.docente_recursos', hintKey: 'navHint.docente_recursos', icon: FolderOpen },
   docente_calendario: { labelKey: 'nav.docente_calendario', hintKey: 'navHint.docente_calendario', icon: Calendar },
@@ -130,6 +132,7 @@ const NAV_REGISTRY = {
 const VIEW_ALIASES = {
   actividades_hub: 'practicar',
   admin_stats: 'admin_reportes',
+  docente_recursos: 'docente_actividades',
 }
 
 const ROLE_NAV_IDS = {
@@ -137,9 +140,9 @@ const ROLE_NAV_IDS = {
   docente: [
     'inicio',
     'docente_grupos',
+    'docente_catalogo_actividades',
     'docente_actividades',
     'docente_reportes',
-    'docente_recursos',
     'docente_calendario',
     'diccionario',
     'configuracion',
@@ -158,12 +161,12 @@ const ROLE_NAV_IDS = {
 }
 
 const BOTTOM_NAV_STUDENT = ['inicio', 'aprender', 'practicar', 'conversar', 'diccionario']
-const BOTTOM_NAV_DOCENTE = ['inicio', 'docente_grupos', 'docente_actividades', 'docente_reportes', 'diccionario']
+const BOTTOM_NAV_DOCENTE = ['inicio', 'docente_grupos', 'docente_catalogo_actividades', 'docente_reportes', 'diccionario']
 const BOTTOM_NAV_ADMIN = ['inicio', 'admin_usuarios', 'admin_contenido', 'admin_reportes', 'configuracion']
 
 const VALID_VIEWS = new Set(Object.keys(NAV_REGISTRY))
 const DOCENTE_CONTENT_VIEWS = new Set(['aprender', 'practicar', 'conversar'])
-const PREFERRED_CATEGORIES = ['comida', 'animales', 'saludos', 'colores', 'numeros', 'diccionario_general']
+const PREFERRED_CATEGORIES = ['comida', 'animales', 'saludos', 'colores', 'numeros', 'alimentos']
 
 function formatChatRecordType(rt) {
   const r = String(rt || '').toLowerCase()
@@ -315,8 +318,8 @@ export default function App() {
       name: 'Usuario',
       email: '',
       level: 'Intermedio',
-      goal: 'Conversacion fluida',
-      language: 'Espanol',
+      goal: 'Conversación fluida',
+      language: 'Español',
       theme: 'Claro Nasa',
       reminders: true,
     }),
@@ -351,13 +354,20 @@ export default function App() {
     const dist = stats?.category_distribution || {}
     const keys = Object.keys(dist)
     const out = []
-    for (const p of PREFERRED_CATEGORIES) if (!out.includes(p)) out.push(p)
-    for (const k of keys.slice(0, 16)) if (!out.includes(k)) out.push(k)
+    const push = (c) => {
+      const s = normalizeDictCategory(c)
+      if (!s || isHiddenDictCategory(s) || out.includes(s)) return
+      out.push(s)
+    }
+    for (const p of PREFERRED_CATEGORIES) push(p)
+    for (const k of keys.slice(0, 16)) push(k)
     for (const c of dictionaryPersisted) {
-      if (typeof c === 'string' && c.trim() && !out.includes(c)) out.push(c)
+      if (typeof c === 'string' && c.trim()) push(c)
     }
     if (out.length) return out
-    if (dictionaryPersisted.length) return dictionaryPersisted.filter((c) => typeof c === 'string' && c.trim())
+    if (dictionaryPersisted.length) {
+      return dictionaryPersisted.map((c) => normalizeDictCategory(c)).filter((c) => c && !isHiddenDictCategory(c))
+    }
     return PREFERRED_CATEGORIES
   }, [stats, dictionaryPersisted])
 
@@ -1339,6 +1349,7 @@ export default function App() {
             setCategory={setCategory}
             preferredTab={dictionaryPreferredTab || undefined}
             onPreferredTabConsumed={consumePreferredDictTab}
+            userRole={auth.role}
           />
         )}
         {view === 'aprender' && (
@@ -1365,14 +1376,19 @@ export default function App() {
         {view === 'docente_grupos' && (
           <TeacherGroupsPanel t={t} notify={notify} navigateHome={() => navigateTo('inicio')} navigateTo={navigateTo} />
         )}
+        {view === 'docente_catalogo_actividades' && (
+          <TeacherCatalogActivitiesPanel
+            t={t}
+            notify={notify}
+            navigateHome={() => navigateTo('inicio')}
+            navigateTo={navigateTo}
+          />
+        )}
         {view === 'docente_actividades' && (
           <TeacherActivitiesPanel t={t} notify={notify} navigateHome={() => navigateTo('inicio')} />
         )}
         {view === 'docente_reportes' && (
           <TeacherReportsPanel t={t} notify={notify} navigateHome={() => navigateTo('inicio')} />
-        )}
-        {view === 'docente_recursos' && (
-          <TeacherResourcesPanel t={t} navigateHome={() => navigateTo('inicio')} navigateTo={navigateTo} />
         )}
         {view === 'docente_calendario' && (
           <TeacherCalendarPanel t={t} notify={notify} navigateHome={() => navigateTo('inicio')} setView={navigateTo} />
@@ -2060,7 +2076,7 @@ export default function App() {
                       <label className="row">
                         Objetivo de estudio
                         <select value={profile.goal} onChange={(e) => setProfile((p) => ({ ...p, goal: e.target.value }))}>
-                          <option>Conversacion fluida</option>
+                          <option>Conversación fluida</option>
                           <option>Comprension lectora</option>
                           <option>Vocabulario diario</option>
                         </select>
@@ -2149,9 +2165,9 @@ export default function App() {
                           value={profile.language}
                           onChange={(e) => setProfile((p) => ({ ...p, language: e.target.value }))}
                         >
-                          <option>Espanol</option>
+                          <option>Español</option>
                           <option>Nasa Yuwe</option>
-                          <option>Bilingue</option>
+                          <option>Bilingüe</option>
                         </select>
                       </label>
                       <div className="row">
@@ -2209,7 +2225,7 @@ export default function App() {
                 <section className="settings-side-card">
                   <h4>Seguridad</h4>
                   <button type="button" onClick={handleChangePassword}>
-                    <KeyRound size={14} /> Cambiar contrasena <ChevronRight size={14} />
+                    <KeyRound size={14} /> Cambiar contraseña <ChevronRight size={14} />
                   </button>
                   <button type="button" onClick={handleToggleSessions}>
                     <Eye size={14} /> Ver sesiones activas <ChevronRight size={14} />
