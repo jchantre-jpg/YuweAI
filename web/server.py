@@ -270,33 +270,14 @@ def _local_solo_image_payload(query: str, category: str, term_id: str = "") -> d
         rel = by_lex.get(k, "")
     if not rel:
         return None
-    fb = firebase_storage_urls.firebase_corpus_image_url(rel)
-    if fb:
-        return {
-            "ok": True,
-            "query": normalize_text(query or ""),
-            "image_url": fb,
-            "thumb_url": fb,
-            "source_url": "",
-            "license": "ilustracion corpus YuweAI (generada)",
-            "author": "corpus generadas-img-ia-solo",
-            "source": "firebase_storage",
-        }
-    try:
-        p = (SOLO_IMG_DIR / rel).resolve()
-        root = SOLO_IMG_DIR.resolve()
-    except OSError:
+    api_url = _corpus_img_api_url(rel)
+    if not api_url:
         return None
-    if not str(p).startswith(str(root)) or not p.is_file():
-        return None
-    if p.suffix.lower() != ".png":
-        return None
-    url = f"/api/corpus-img/{rel}"
     return {
         "ok": True,
         "query": normalize_text(query or ""),
-        "image_url": url,
-        "thumb_url": url,
+        "image_url": api_url,
+        "thumb_url": api_url,
         "source_url": "",
         "license": "ilustracion corpus YuweAI (generada)",
         "author": "corpus generadas-img-ia-solo",
@@ -304,8 +285,75 @@ def _local_solo_image_payload(query: str, category: str, term_id: str = "") -> d
     }
 
 
+def _corpus_img_api_url(rel: str) -> str:
+    """Proxy estable: el navegador pide al API; Render sirve disco o redirige al CDN."""
+    rel = str(rel or "").strip().replace("\\", "/").lstrip("/")
+    if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
+        return ""
+    return f"/api/corpus-img?rel={quote(rel, safe='')}"
+
+
+def _respond_corpus_img(handler, rel: str) -> None:
+    """Sirve PNG local, redirige al CDN, o 404."""
+    rel = unquote(str(rel or "")).replace("\\", "/").lstrip("/")
+    if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
+        handler.send_error(400, "Bad path")
+        return
+    try:
+        p = (SOLO_IMG_DIR / rel).resolve()
+        root = SOLO_IMG_DIR.resolve()
+    except OSError:
+        handler.send_error(500)
+        return
+    if not str(p).startswith(str(root)) or not p.is_file():
+        fb = firebase_storage_urls.firebase_corpus_image_url(rel)
+        if fb:
+            acao = _cors_allow_origin(handler)
+            handler.send_response(302)
+            handler.send_header("Location", fb)
+            handler.send_header("Cache-Control", "public, max-age=604800")
+            if acao:
+                handler.send_header("Access-Control-Allow-Origin", acao)
+            handler.end_headers()
+            return
+        handler.send_error(404, "PNG no encontrado")
+        return
+    if p.suffix.lower() != ".png":
+        handler.send_error(404, "Solo PNG")
+        return
+    try:
+        st = p.stat()
+    except OSError:
+        handler.send_error(404)
+        return
+    etag = f'"{int(st.st_mtime)}-{st.st_size}"'
+    inm = handler.headers.get("If-None-Match", "").strip()
+    acao = _cors_allow_origin(handler)
+    if inm and inm == etag:
+        handler.send_response(304)
+        handler.send_header("ETag", etag)
+        handler.send_header("Cache-Control", "public, max-age=604800, immutable")
+        if acao:
+            handler.send_header("Access-Control-Allow-Origin", acao)
+        handler.end_headers()
+        return
+    data = p.read_bytes()
+    handler.send_response(200)
+    handler.send_header("Content-Type", "image/png")
+    handler.send_header("Cache-Control", "public, max-age=604800, immutable")
+    handler.send_header("ETag", etag)
+    handler.send_header("X-Content-Type-Options", "nosniff")
+    if acao:
+        handler.send_header("Access-Control-Allow-Origin", acao)
+        if CORS_ALLOWED_ORIGINS:
+            handler.send_header("Vary", "Origin")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
 def _term_local_image_url(term_id: str = "", query: str = "", category: str = "") -> str | None:
-    """URL relativa /api/corpus-img/... si el termino tiene PNG en generadas-img-ia-solo."""
+    """URL /api/corpus-img?rel=... si el termino tiene PNG en generadas-img-ia-solo."""
     by_id, by_lex = _get_solo_image_index()
     rel = ""
     tid = (term_id or "").strip()
@@ -316,20 +364,8 @@ def _term_local_image_url(term_id: str = "", query: str = "", category: str = ""
         rel = by_lex.get(k, "")
     if not rel:
         return None
-    rel = str(rel).strip().replace("\\", "/").lstrip("/")
-    if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
-        return None
-    fb = firebase_storage_urls.firebase_corpus_image_url(rel)
-    if fb:
-        return fb
-    try:
-        p = (SOLO_IMG_DIR / rel).resolve()
-        root = SOLO_IMG_DIR.resolve()
-    except OSError:
-        return None
-    if not str(p).startswith(str(root)) or not p.is_file():
-        return None
-    return f"/api/corpus-img/{rel}"
+    url = _corpus_img_api_url(rel)
+    return url or None
 
 
 def _attach_term_image(term: dict) -> dict:
@@ -5673,63 +5709,13 @@ class AVIHandler(BaseHTTPRequestHandler):
             result = ENGINE.dialogues(cat, limit=limit)
             self._send_json(result)
             return
+        if route == "/api/corpus-img":
+            rel = parse_qs(parsed.query).get("rel", [""])[0]
+            _respond_corpus_img(self, rel)
+            return
         if route.startswith("/api/corpus-img/"):
             rel = route[len("/api/corpus-img/") :].lstrip("/")
-            rel = unquote(rel).replace("\\", "/").lstrip("/")
-            if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
-                self.send_error(400, "Bad path")
-                return
-            try:
-                p = (SOLO_IMG_DIR / rel).resolve()
-                root = SOLO_IMG_DIR.resolve()
-            except OSError:
-                self.send_error(500)
-                return
-            if not str(p).startswith(str(root)) or not p.is_file():
-                fb = firebase_storage_urls.firebase_corpus_image_url(rel)
-                if fb:
-                    acao = _cors_allow_origin(self)
-                    self.send_response(302)
-                    self.send_header("Location", fb)
-                    self.send_header("Cache-Control", "public, max-age=604800")
-                    if acao:
-                        self.send_header("Access-Control-Allow-Origin", acao)
-                    self.end_headers()
-                    return
-                self.send_error(404, "PNG no encontrado")
-                return
-            if p.suffix.lower() != ".png":
-                self.send_error(404, "Solo PNG")
-                return
-            try:
-                st = p.stat()
-            except OSError:
-                self.send_error(404)
-                return
-            etag = f'"{int(st.st_mtime)}-{st.st_size}"'
-            inm = self.headers.get("If-None-Match", "").strip()
-            acao = _cors_allow_origin(self)
-            if inm and inm == etag:
-                self.send_response(304)
-                self.send_header("ETag", etag)
-                self.send_header("Cache-Control", "public, max-age=604800, immutable")
-                if acao:
-                    self.send_header("Access-Control-Allow-Origin", acao)
-                self.end_headers()
-                return
-            data = p.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "image/png")
-            self.send_header("Cache-Control", "public, max-age=604800, immutable")
-            self.send_header("ETag", etag)
-            self.send_header("X-Content-Type-Options", "nosniff")
-            if acao:
-                self.send_header("Access-Control-Allow-Origin", acao)
-                if CORS_ALLOWED_ORIGINS:
-                    self.send_header("Vary", "Origin")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            _respond_corpus_img(self, rel)
             return
         if route == "/api/image":
             q = parse_qs(parsed.query).get("q", [""])[0]

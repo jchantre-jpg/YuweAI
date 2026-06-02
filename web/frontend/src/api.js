@@ -9,7 +9,17 @@ const API_BASE =
 export function apiAssetUrl(path) {
   if (!path) return ''
   const s = String(path).trim()
-  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) {
+    const hf = s.match(/huggingface\.co\/datasets\/[^/]+\/resolve\/main\/(.+)$/i)
+    if (hf && API_BASE) {
+      try {
+        return `${API_BASE}/api/corpus-img?rel=${encodeURIComponent(decodeURIComponent(hf[1]))}`
+      } catch {
+        return `${API_BASE}/api/corpus-img?rel=${encodeURIComponent(hf[1])}`
+      }
+    }
+    return s
+  }
   const p = s.startsWith('/') ? s : `/${s}`
   return `${API_BASE}${p}`
 }
@@ -19,6 +29,30 @@ export class ApiError extends Error {
     super(message)
     this.name = 'ApiError'
     this.status = status
+  }
+}
+
+/** Render free tier puede tardar ~30–60 s al despertar; evita fetch colgado sin feedback. */
+const DEFAULT_FETCH_TIMEOUT_MS = 55000
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new ApiError(
+        'El servidor tarda demasiado en responder (puede estar despertando). Espera un momento e intenta de nuevo.',
+        408,
+      )
+    }
+    throw new ApiError(
+      err?.message || 'No se pudo conectar con el servidor. Revisa tu internet e intenta otra vez.',
+      0,
+    )
+  } finally {
+    window.clearTimeout(timer)
   }
 }
 
@@ -46,8 +80,8 @@ function throwIfHtmlPayload(data, response) {
   }
 }
 
-async function request(path) {
-  const response = await fetch(`${API_BASE}${path}`)
+async function request(path, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
+  const response = await fetchWithTimeout(`${API_BASE}${path}`, {}, timeoutMs)
   const text = await response.text()
   const trimmed = text.trimStart()
   const looksJson = trimmed.startsWith('{') || trimmed.startsWith('[')
@@ -69,16 +103,20 @@ async function request(path) {
   return data
 }
 
-async function postJson(path, body, token = null) {
+async function postJson(path, body, token = null, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
   const headers = { 'Content-Type': 'application/json; charset=utf-8' }
   if (token) {
     headers.Authorization = `Bearer ${token}`
   }
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body ?? {}),
-  })
+  const response = await fetchWithTimeout(
+    `${API_BASE}${path}`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body ?? {}),
+    },
+    timeoutMs,
+  )
   const data = await parseJsonSafe(response)
   throwIfHtmlPayload(data, response)
   if (!response.ok) {
@@ -87,10 +125,14 @@ async function postJson(path, body, token = null) {
   return data
 }
 
-async function getJsonAuthorized(path, token) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+async function getJsonAuthorized(path, token, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
+  const response = await fetchWithTimeout(
+    `${API_BASE}${path}`,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+    timeoutMs,
+  )
   const data = await parseJsonSafe(response)
   throwIfHtmlPayload(data, response)
   if (!response.ok) {
@@ -168,7 +210,7 @@ export function authGoogle(body) {
 }
 
 export function authMe(token) {
-  return getJsonAuthorized('/api/auth/me', token)
+  return getJsonAuthorized('/api/auth/me', token, 22000)
 }
 
 export async function authLogout(token) {

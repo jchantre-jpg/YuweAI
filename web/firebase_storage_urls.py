@@ -12,6 +12,18 @@ _CDN_BASE = os.environ.get("SOLO_IMG_CDN_BASE", "").strip().rstrip("/")
 _BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 _PREFIX = (os.environ.get("FIREBASE_STORAGE_PREFIX", "corpus-img") or "corpus-img").strip("/")
 
+# Rutas seguras en Git → nombre legacy en Hugging Face (mismo PNG, sin re-subir).
+_CDN_LEGACY_PATHS: dict[str, str] = {
+    "diccionario_general/en_vez_ellipsis.png": "diccionario_general/en_vez._._..png",
+    "diccionario_general/mientras_durante_ellipsis.png": "diccionario_general/mientras,_durante._._..png",
+    "diccionario_general/favor_de_ellipsis.png": "diccionario_general/favor_de._._..png",
+}
+
+
+def cdn_resolve_rel(rel: str) -> str:
+    rel = str(rel or "").strip().replace("\\", "/").lstrip("/")
+    return _CDN_LEGACY_PATHS.get(rel, rel)
+
 
 def is_safe_corpus_rel_path(rel: str) -> bool:
     """Rechaza traversal (../); permite nombres como en_vez._._..png donde '..' es parte del nombre."""
@@ -39,7 +51,8 @@ def remote_corpus_image_url(rel: str) -> str | None:
     if not is_safe_corpus_rel_path(rel) or not rel.lower().endswith(".png"):
         return None
     if _CDN_BASE:
-        return f"{_CDN_BASE}/{rel}"
+        cdn_rel = cdn_resolve_rel(rel)
+        return f"{_CDN_BASE}/{cdn_rel}"
     if _BUCKET:
         path = f"{_PREFIX}/{rel}" if _PREFIX else rel
         encoded = quote(path, safe="")
