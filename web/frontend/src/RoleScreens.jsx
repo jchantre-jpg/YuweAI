@@ -8,7 +8,7 @@ import {
   getTeacherGrades,
   getTeacherActivities,
   createTeacherActivity,
-  submitTeacherContent,
+  assignTeacherActivity,
   getTeacherReportsSummary,
   updateTeacherActivity,
   postTeacherGroupUnassign,
@@ -409,7 +409,7 @@ function labelSlug(value) {
 
 function titleLabel(value) {
   const clean = labelSlug(value)
-  return clean ? clean.charAt(0).toUpperCase() + clean.slice(1) : 'Categoria'
+  return clean ? clean.charAt(0).toUpperCase() + clean.slice(1) : 'Categoría'
 }
 
 function cleanWord(value) {
@@ -657,7 +657,7 @@ export function TeacherDashboard({ t, notify, profile, setView }) {
           <RolePanel
             title={t('teacher.panelPendingAct')}
             action={
-              <button type="button" className="role-panel-link-btn" onClick={() => setView('docente_actividades')}>
+              <button type="button" className="role-panel-link-btn" onClick={() => setView('docente_catalogo_actividades')}>
                 {t('teacher.viewAllArrow')}
               </button>
             }
@@ -703,8 +703,11 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
   const [activities, setActivities] = useState([])
   const [q, setQ] = useState('')
   const [groupFilter, setGroupFilter] = useState('')
-  const [showForm, setShowForm] = useState(true)
+  const [showForm, setShowForm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [assignGroupId, setAssignGroupId] = useState('')
+  const [assignGradeId, setAssignGradeId] = useState('')
+  const [assigning, setAssigning] = useState(false)
   const [draft, setDraft] = useState(() => ({
     title: '',
     description: '',
@@ -864,6 +867,38 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
     }
   }
 
+  async function submitAssign(ev) {
+    ev.preventDefault()
+    if (!actSheet?.row?.id) return
+    if (!assignGroupId && !assignGradeId) {
+      notify(t('teacher.assignNeedTarget'))
+      return
+    }
+    setAssigning(true)
+    try {
+      const r = await assignTeacherActivity(token, {
+        activity_id: actSheet.row.id,
+        group_id: Number(assignGroupId || 0),
+        grade_id: Number(assignGradeId || 0),
+      })
+      notify(r.message || t('teacher.assignActOk'))
+      setActSheet(null)
+      setAssignGroupId('')
+      setAssignGradeId('')
+      reload()
+    } catch (e) {
+      notify(e.message || t('teacher.assignActErr'))
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  function openAssignSheet(row) {
+    setAssignGroupId('')
+    setAssignGradeId('')
+    setActSheet({ row, mode: 'assign' })
+  }
+
   return (
     <div className="teacher-workspace-shell">
       <div className="page-shell doc-shell teacher-module teacher-module--activities">
@@ -1018,6 +1053,15 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
                           <button
                             type="button"
                             className="teacher-icon-btn"
+                            title={t('teacher.assignActBtn')}
+                            aria-label={t('teacher.assignActBtn')}
+                            onClick={() => openAssignSheet(row)}
+                          >
+                            <UserCheck size={16} strokeWidth={2} />
+                          </button>
+                          <button
+                            type="button"
+                            className="teacher-icon-btn"
                             title={t('teacher.edit')}
                             aria-label={t('teacher.edit')}
                             onClick={() => setActSheet({ row, mode: 'edit' })}
@@ -1070,9 +1114,56 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
                 <X size={18} strokeWidth={2.2} aria-hidden />
               </button>
               <h3 id="teacher-act-sheet-title">
-                {actSheet.mode === 'edit' ? t('teacher.actModalEditTitle') : t('teacher.actModalViewTitle')}
+                {actSheet.mode === 'edit'
+                  ? t('teacher.actModalEditTitle')
+                  : actSheet.mode === 'assign'
+                    ? t('teacher.actModalAssignTitle')
+                    : t('teacher.actModalViewTitle')}
               </h3>
               {actSheet.mode === 'edit' ? <p className="admin-modal-intro">{t('teacher.actModalEditHint')}</p> : null}
+              {actSheet.mode === 'assign' ? (
+                <form className="teacher-act-form-grid" onSubmit={submitAssign}>
+                  <p className="admin-modal-intro">{t('teacher.actModalAssignHint')}</p>
+                  <p>
+                    <strong>{actSheet.row.title}</strong>
+                    <br />
+                    <small>
+                      {t(teacherTipoLabelKey(actSheet.row.mode))} · {actSheet.row.category || '—'}
+                    </small>
+                  </p>
+                  <label>
+                    {t('teacher.actAssignGroupLbl')}
+                    <select value={assignGroupId} onChange={(ev) => setAssignGroupId(ev.target.value)}>
+                      <option value="">{t('teacher.actPickGroupOpt')}</option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                          {g.grade ? ` (${g.grade})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t('teacher.actPickGradeOpt')}
+                    <select value={assignGradeId} onChange={(ev) => setAssignGradeId(ev.target.value)}>
+                      <option value="">{t('teacher.assignGradeNone')}</option>
+                      {grades.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="modal-actions-row">
+                    <button type="submit" className="teacher-btn-solid" disabled={assigning}>
+                      {assigning ? t('teacher.sending') : t('teacher.assignActSubmit')}
+                    </button>
+                    <button type="button" onClick={() => setActSheet(null)}>
+                      {t('teacher.actModalClose')}
+                    </button>
+                  </div>
+                </form>
+              ) : null}
               {actSheet.mode === 'edit' && editDraft ? (
                 <form className="teacher-act-form-grid" onSubmit={saveActivityEdit}>
                   <input
@@ -1130,7 +1221,7 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
                     </button>
                   </div>
                 </form>
-              ) : (
+              ) : actSheet.mode === 'view' ? (
                 <dl className="teacher-act-dl">
                   <dt>{t('teacher.colTitle')}</dt>
                   <dd>{actSheet.row.title || '—'}</dd>
@@ -1160,9 +1251,12 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
                     <code>{actSheet.row.id != null ? String(actSheet.row.id) : '—'}</code>
                   </dd>
                 </dl>
-              )}
+              ) : null}
               {actSheet.mode === 'view' ? (
                 <div className="modal-actions-row">
+                  <button type="button" className="teacher-btn-solid" onClick={() => openAssignSheet(actSheet.row)}>
+                    {t('teacher.assignActBtn')}
+                  </button>
                   <button type="button" onClick={() => setActSheet(null)}>
                     {t('teacher.actModalClose')}
                   </button>
@@ -1173,6 +1267,319 @@ export function TeacherActivitiesPanel({ t, notify, navigateHome }) {
         ) : null}
 
         <p className="teacher-module-foot">{t('teacher.activitiesFoot')}</p>
+      </div>
+    </div>
+  )
+}
+
+/** Vista de actividades con el mismo diseño que ven los estudiantes en Practicar. */
+export function TeacherCatalogActivitiesPanel({ t, notify, navigateHome, navigateTo }) {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
+  const [groups, setGroups] = useState([])
+  const [grades, setGrades] = useState([])
+  const [catalog, setCatalog] = useState([])
+  const [assignedIds, setAssignedIds] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [assignSheet, setAssignSheet] = useState(null)
+  const [assignGroupId, setAssignGroupId] = useState('')
+  const [assignGradeId, setAssignGradeId] = useState('')
+  const [assigning, setAssigning] = useState(false)
+  const [previewStep, setPreviewStep] = useState('hub')
+  const [previewQuestions, setPreviewQuestions] = useState([])
+  const [previewIdx, setPreviewIdx] = useState(0)
+  const [previewChosen, setPreviewChosen] = useState(null)
+  const [previewRevealed, setPreviewRevealed] = useState(false)
+  const [previewActivity, setPreviewActivity] = useState(null)
+
+  const assignedIdSet = useMemo(() => new Set(assignedIds.map(Number)), [assignedIds])
+  const sortedCatalog = useMemo(() => {
+    const list = Array.isArray(catalog) ? [...catalog] : []
+    list.sort((a, b) => {
+      const ar = assignedIdSet.has(Number(a.id)) ? 0 : 1
+      const br = assignedIdSet.has(Number(b.id)) ? 0 : 1
+      if (ar !== br) return ar - br
+      return (Number(b.created_at) || 0) - (Number(a.created_at) || 0)
+    })
+    return list
+  }, [catalog, assignedIdSet])
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [g, gr, act] = await Promise.all([
+        getTeacherGroups(token),
+        getTeacherGrades(token),
+        getTeacherActivities(token),
+      ])
+      setGroups(g.groups || [])
+      setGrades(gr.grades || [])
+      setCatalog(Array.isArray(act.catalog) ? act.catalog : act.activities || [])
+      setAssignedIds(Array.isArray(act.assigned_ids) ? act.assigned_ids : [])
+    } catch {
+      notify(t('teacher.loadErr'))
+    } finally {
+      setLoading(false)
+    }
+  }, [notify, t, token])
+
+  useEffect(() => {
+    reload()
+  }, [reload])
+
+  async function submitAssign(ev) {
+    ev.preventDefault()
+    if (!assignSheet?.id) return
+    if (!assignGroupId && !assignGradeId) {
+      notify(t('teacher.assignNeedTarget'))
+      return
+    }
+    setAssigning(true)
+    try {
+      const r = await assignTeacherActivity(token, {
+        activity_id: assignSheet.id,
+        group_id: Number(assignGroupId || 0),
+        grade_id: Number(assignGradeId || 0),
+      })
+      notify(r.message || t('teacher.assignActOk'))
+      setAssignSheet(null)
+      setAssignGroupId('')
+      setAssignGradeId('')
+      reload()
+    } catch (e) {
+      notify(e.message || t('teacher.assignActErr'))
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  async function startPreview(activity) {
+    const cat = String(activity?.category || 'comida').trim() || 'comida'
+    const diff = normalizeDifficulty(activity?.difficulty)
+    const mode = normalizeActivityMode(activity?.mode)
+    setPreviewActivity(activity)
+    setPreviewStep('quiz')
+    setPreviewIdx(0)
+    setPreviewChosen(null)
+    setPreviewRevealed(false)
+    try {
+      const data = await getActivityAdv(cat, 6, diff, mode)
+      const qs = (data.questions || []).map((item) => ({ ...item }))
+      if (!qs.length) {
+        notify(t('practice.empty'))
+        setPreviewStep('hub')
+        return
+      }
+      setPreviewQuestions(qs)
+    } catch (e) {
+      notify(e.message || t('practice.empty'))
+      setPreviewStep('hub')
+    }
+  }
+
+  function pickPreview(option) {
+    const q = previewQuestions[previewIdx]
+    if (previewRevealed || !q) return
+    setPreviewChosen(option)
+    setPreviewRevealed(true)
+  }
+
+  function nextPreviewQuestion() {
+    if (previewIdx + 1 >= previewQuestions.length) {
+      setPreviewStep('hub')
+      setPreviewActivity(null)
+      setPreviewQuestions([])
+      notify(t('teacher.previewDone'))
+    } else {
+      setPreviewIdx(previewIdx + 1)
+      setPreviewChosen(null)
+      setPreviewRevealed(false)
+    }
+  }
+
+  const previewQ = previewQuestions[previewIdx]
+
+  return (
+    <div className="teacher-workspace-shell">
+      <div className="page-shell practice-mock-shell teacher-catalog-act-shell">
+        <div className="practice-mock-grid teacher-catalog-act-grid">
+          <div className="practice-mock-main">
+            <header className="learn-mock-heading practice-mock-hero">
+              <div className="learn-mock-heading-copy">
+                <h2 className="learn-mock-title">{t('teacher.catalogPageTitle')}</h2>
+                <p className="teacher-catalog-act-sub">{t('teacher.catalogPageSub')}</p>
+              </div>
+              <div className="teacher-catalog-act-head-actions">
+                <button type="button" className="dict-home-btn dict-home-btn--ghost" onClick={() => navigateTo?.('docente_actividades')}>
+                  {t('teacher.catalogManageBtn')}
+                </button>
+                <button type="button" className="dict-home-btn" onClick={navigateHome}>
+                  {t('teacher.homeTeacher')}
+                </button>
+              </div>
+            </header>
+
+            <div className="woven-strip woven-strip--thin practice-mock-strip" aria-hidden />
+
+            {previewStep === 'quiz' && previewQ ? (
+              <div className="act-quiz teacher-catalog-preview">
+                <div className="teacher-catalog-preview-bar">
+                  <button type="button" className="practice-explore-back" onClick={() => setPreviewStep('hub')}>
+                    <ArrowLeft size={18} aria-hidden /> {t('teacher.previewBack')}
+                  </button>
+                  <strong>{previewActivity?.title}</strong>
+                </div>
+                <p className="quiz-meta">{t('act.qOf', { n: previewIdx + 1, t: previewQuestions.length })}</p>
+                <ActivityExercisePrompt q={previewQ} t={t} spanishCue={previewQ.espanol} classPrefix="act" />
+                <ActivityExerciseOptions
+                  q={previewQ}
+                  chosen={previewChosen}
+                  revealed={previewRevealed}
+                  onPick={pickPreview}
+                  stringsEqual={activityStringsEqual}
+                  category={previewQ.categoria || previewActivity?.category}
+                  variant="act"
+                />
+                {previewRevealed ? (
+                  <div className="quiz-feedback-msg">
+                    {activityStringsEqual(previewChosen, previewQ.answer) ? (
+                      <>
+                        <CheckCircle size={18} /> {t('act.good')}
+                      </>
+                    ) : (
+                      <>
+                        <XCircle size={18} /> {t('act.bad')} <strong>{previewQ.answer}</strong>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+                <div className="quiz-actions">
+                  <button type="button" onClick={nextPreviewQuestion} disabled={!previewRevealed}>
+                    {previewIdx + 1 >= previewQuestions.length ? t('teacher.previewFinish') : t('act.next')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="practice-grade-banner">
+                  <div className="practice-grade-banner-icon" aria-hidden>
+                    <GraduationCap size={28} strokeWidth={2} />
+                  </div>
+                  <div className="practice-grade-banner-copy">
+                    <p className="practice-grade-banner-label">{t('teacher.catalogBannerLbl')}</p>
+                    <p className="practice-grade-banner-value">{t('teacher.catalogBannerVal', { n: sortedCatalog.length })}</p>
+                    {groups.length ? (
+                      <p className="practice-grade-banner-groups">
+                        {t('teacher.catalogGroupsLine', { list: groups.map((g) => g.name).join(', ') })}
+                      </p>
+                    ) : (
+                      <p className="practice-grade-banner-missing">{t('teacher.catalogNoGroups')}</p>
+                    )}
+                  </div>
+                </div>
+
+                <section className="practice-grade-activities-card" aria-label={t('teacher.catalogListTitle')}>
+                  <div className="practice-grade-activities-head">
+                    <h3>{t('teacher.catalogListTitle')}</h3>
+                    <p className="practice-grade-activities-sub">{t('teacher.catalogListSub')}</p>
+                  </div>
+                  {loading ? (
+                    <p className="practice-assignments-empty">{t('teacher.catalogLoading')}</p>
+                  ) : sortedCatalog.length ? (
+                    <ul className="practice-assignment-rows">
+                      {sortedCatalog.map((a) => (
+                        <li key={a.id} className="practice-assignment-row">
+                          <div className="practice-assignment-body">
+                            <strong className="practice-assignment-title">{a.title}</strong>
+                            {assignedIdSet.has(Number(a.id)) ? (
+                              <span className="status-pill ok practice-assignment-badge">{t('teacher.catalogAssignedBadge')}</span>
+                            ) : null}
+                            {a.description ? <p className="practice-assignment-desc">{a.description}</p> : null}
+                            <div className="practice-assignment-meta">
+                              <span>{titleLabel(String(a.category || '').trim() || 'comida')}</span>
+                              <span>{t(`act.${normalizeDifficulty(a.difficulty)}`)}</span>
+                              <span>{activityModeLabel(t, a.mode)}</span>
+                            </div>
+                          </div>
+                          <div className="teacher-catalog-act-row-actions">
+                            <button type="button" className="practice-assignment-go practice-assignment-go--ghost" onClick={() => startPreview(a)}>
+                              {t('teacher.catalogPreviewBtn')}
+                            </button>
+                            <button
+                              type="button"
+                              className="practice-assignment-go"
+                              onClick={() => {
+                                setAssignGroupId('')
+                                setAssignGradeId('')
+                                setAssignSheet(a)
+                              }}
+                            >
+                              {t('teacher.assignActBtn')}
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="practice-assignments-fallback">
+                      <p className="practice-assignments-empty">{t('teacher.noActivitiesRows')}</p>
+                      <button type="button" className="teacher-btn-solid" onClick={() => navigateTo?.('docente_actividades')}>
+                        {t('teacher.newActivityBtn')}
+                      </button>
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
+        </div>
+
+        {assignSheet ? (
+          <div className="admin-modal" role="presentation" onClick={() => setAssignSheet(null)}>
+            <div className="admin-modal-inner admin-modal-inner--wide teacher-act-sheet" role="dialog" aria-modal="true" onClick={(ev) => ev.stopPropagation()}>
+              <button type="button" className="teacher-act-sheet-close" onClick={() => setAssignSheet(null)} aria-label={t('teacher.actModalClose')}>
+                <X size={18} strokeWidth={2.2} aria-hidden />
+              </button>
+              <h3>{t('teacher.actModalAssignTitle')}</h3>
+              <form className="teacher-act-form-grid" onSubmit={submitAssign}>
+                <p className="admin-modal-intro">{t('teacher.actModalAssignHint')}</p>
+                <p>
+                  <strong>{assignSheet.title}</strong>
+                </p>
+                <label>
+                  {t('teacher.actAssignGroupLbl')}
+                  <select value={assignGroupId} onChange={(ev) => setAssignGroupId(ev.target.value)}>
+                    <option value="">{t('teacher.actPickGroupOpt')}</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                        {g.grade ? ` (${g.grade})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t('teacher.actPickGradeOpt')}
+                  <select value={assignGradeId} onChange={(ev) => setAssignGradeId(ev.target.value)}>
+                    <option value="">{t('teacher.assignGradeNone')}</option>
+                    {grades.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="modal-actions-row">
+                  <button type="submit" className="teacher-btn-solid" disabled={assigning}>
+                    {assigning ? t('teacher.sending') : t('teacher.assignActSubmit')}
+                  </button>
+                  <button type="button" onClick={() => setAssignSheet(null)}>
+                    {t('teacher.actModalClose')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -1588,45 +1995,8 @@ export function TeacherMessagesPanel({ t, notify, navigateHome, sessionToken }) 
   )
 }
 
-export function TeacherResourcesPanel({ t, navigateHome, navigateTo }) {
-  const cards = [
-    { icon: BookOpen, key: 'resDict', tint: 'beige', onClick: () => navigateTo?.('diccionario') },
-    { icon: BookMarked, key: 'resCorpus', tint: 'green', onClick: () => navigateTo?.('aprender') },
-    { icon: ClipboardList, key: 'resActs', tint: 'gold', onClick: () => navigateTo?.('docente_actividades') },
-  ].filter((x) => x.icon)
-
-  return (
-    <div className="teacher-workspace-shell">
-      <div className="page-shell doc-shell teacher-module teacher-module--resources">
-        <header className="teacher-module-head">
-          <div>
-            <h2>{t('teacher.resPageTitle')}</h2>
-            <p>{t('teacher.resPageSub')}</p>
-          </div>
-          <button type="button" className="dict-home-btn" onClick={navigateHome}>
-            {t('teacher.homeTeacher')}
-          </button>
-        </header>
-        <ul className="teacher-res-grid">
-          {cards.map((c) => {
-            const Ico = c.icon
-            return (
-              <li key={c.key}>
-                <button type="button" className={`teacher-res-card teacher-res-card--${c.tint}`} onClick={c.onClick}>
-                  <span className="teacher-res-ring">
-                    <Ico size={26} strokeWidth={2} />
-                  </span>
-                  <strong>{t(`teacher.${c.key}Title`)}</strong>
-                  <small>{t(`teacher.${c.key}Sub`)}</small>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-        <p className="teacher-module-foot">{t('teacher.resFoot')}</p>
-      </div>
-    </div>
-  )
+export function TeacherResourcesPanel({ t, notify, navigateHome }) {
+  return <TeacherActivitiesPanel t={t} notify={notify} navigateHome={navigateHome} />
 }
 
 export function TeacherCalendarPanel({ t, notify, navigateHome, setView }) {
@@ -3357,7 +3727,6 @@ export function StudentActivitiesRoute({
   }
 
   const practiceCue = q ? spotlightWord(q) : ''
-  const practiceQKey = q ? practiceQuestionCopyKey(practiceTab, q.type) : 'practice.qPickNasa'
   const practiceProgressRatio = questions.length ? (idx + 1) / questions.length : 0
 
   return (
@@ -3957,41 +4326,48 @@ export function StudentPracticeRoute({ navigateTo, practiceFromLearn, onConsumeP
   )
 }
 
+const COLOMBIAN_GRADES = [
+  { value: 'Transición', level: 'Preescolar' },
+  { value: '1', level: 'Primaria' },
+  { value: '2', level: 'Primaria' },
+  { value: '3', level: 'Primaria' },
+  { value: '4', level: 'Primaria' },
+  { value: '5', level: 'Primaria' },
+  { value: '6', level: 'Secundaria' },
+  { value: '7', level: 'Secundaria' },
+  { value: '8', level: 'Secundaria' },
+  { value: '9', level: 'Secundaria' },
+  { value: '10', level: 'Secundaria' },
+  { value: '11', level: 'Secundaria' },
+]
+
+function educationLevelForGrade(gradeValue) {
+  const row = COLOMBIAN_GRADES.find((g) => g.value === gradeValue)
+  return row?.level || 'General'
+}
+
 export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('avi-session-token') : ''
   const [groups, setGroups] = useState([])
   const [students, setStudents] = useState([])
   const [grades, setGrades] = useState([])
-  const [activities, setActivities] = useState([])
   const [qstud, setQstud] = useState('')
   const [name, setName] = useState('')
-  const [edu, setEdu] = useState('Primaria')
-  const [grade, setGrade] = useState('')
+  const [grade, setGrade] = useState('5')
   const [gradeId, setGradeId] = useState('')
   const [dif, setDif] = useState('intermedio')
-  const [actTitle, setActTitle] = useState('')
-  const [actDesc, setActDesc] = useState('')
-  const [actMode, setActMode] = useState('quiz')
-  const [actCategory, setActCategory] = useState('comida')
-  const [actGroupSel, setActGroupSel] = useState('')
-  const [actWorkflow, setActWorkflow] = useState('activa')
-  const [submission, setSubmission] = useState({ kind: 'termino', title: '', espanol: '', nasa_yuwe: '', translation: '', image_url: '', audio_url: '', notes: '' })
   const [pickedGroup, setPickedGroup] = useState(null)
   const [selIds, setSelIds] = useState([])
   const [report, setReport] = useState(null)
   const [reportPending, setReportPending] = useState(false)
   const [panel, setPanel] = useState('list')
+  const edu = educationLevelForGrade(grade)
 
   async function reload() {
     try {
-      const [g, gr, act] = await Promise.all([
-        getTeacherGroups(token),
-        getTeacherGrades(token),
-        getTeacherActivities(token),
-      ])
+      const [g, gr] = await Promise.all([getTeacherGroups(token), getTeacherGrades(token)])
       setGroups(g.groups || [])
       setGrades(gr.grades || [])
-      setActivities(act.activities || [])
     } catch {
       notify(t('teacher.loadErr'))
     }
@@ -4016,58 +4392,27 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
 
   async function createGroup(ev) {
     ev.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) {
+      notify(t('teacher.groupNameRequired'))
+      return
+    }
+    const dup = groups.some((g) => String(g.name || '').trim().toLowerCase() === trimmed.toLowerCase())
+    if (dup) {
+      notify(t('teacher.groupDuplicate'))
+      return
+    }
     try {
-      await postAuthorized(
-        '/api/teacher/groups',
-        token,
-        { name, education_level: edu, grade, grade_id: Number(gradeId || 0), difficulty_default: dif },
-      )
+      await postAuthorized('/api/teacher/groups', token, {
+        name: trimmed,
+        education_level: edu,
+        grade,
+        grade_id: Number(gradeId || 0),
+        difficulty_default: dif,
+      })
       notify(t('teacher.groupSaved'))
       setName('')
-      setGrade('')
       reload()
-    } catch (e) {
-      notify(e.message)
-    }
-  }
-
-  async function createActivity() {
-    if (!actTitle.trim()) {
-      notify(t('teacher.actTitleRequired'))
-      return
-    }
-    try {
-      await createTeacherActivity(token, {
-        title: actTitle.trim(),
-        description: (actDesc || actTitle).trim(),
-        category: actCategory,
-        difficulty: dif,
-        mode: actMode,
-        status: actWorkflow,
-        grade_id: Number(gradeId || 0),
-        group_id: Number(actGroupSel || pickedGroup?.id || 0),
-      })
-      setActTitle('')
-      setActDesc('')
-      reload()
-      notify(t('teacher.actCreated'))
-    } catch (e) {
-      notify(e.message)
-    }
-  }
-
-  async function sendSubmission() {
-    if (!submission.title.trim()) {
-      notify(t('teacher.submissionNeedTitle'))
-      return
-    }
-    try {
-      await submitTeacherContent(token, {
-        ...submission,
-        title: submission.title.trim(),
-      })
-      setSubmission({ kind: 'termino', title: '', espanol: '', nasa_yuwe: '', translation: '', image_url: '', audio_url: '', notes: '' })
-      notify(t('teacher.submissionSentOk'))
     } catch (e) {
       notify(e.message)
     }
@@ -4202,32 +4547,43 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
               <h3>{t('teacher.newGroup')}</h3>
               <input required value={name} onChange={(ev) => setName(ev.target.value)} placeholder={t('teacher.groupNamePh')} />
               <label>
-                {t('teacher.levelEdu')}
-                <select value={edu} onChange={(ev) => setEdu(ev.target.value)}>
-                  <option value="Primaria">{t('teacher.eduPrimaria')}</option>
-                  <option value="Secundaria">{t('teacher.eduSec')}</option>
-                  <option value="Otro">{t('teacher.eduOther')}</option>
-                </select>
-              </label>
-              {edu === 'Primaria' ? (
-                <input value={grade} onChange={(ev) => setGrade(ev.target.value)} placeholder={t('teacher.gradePh')} />
-              ) : null}
-              <label>
-                Grado global
-                <select value={gradeId} onChange={(ev) => setGradeId(ev.target.value)}>
-                  <option value="">(opcional)</option>
-                  {grades.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
+                {t('teacher.gradeSelect')}
+                <select
+                  value={grade}
+                  onChange={(ev) => setGrade(ev.target.value)}
+                  required
+                >
+                  {COLOMBIAN_GRADES.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.value === 'Transición' ? t('teacher.gradeTransicion') : `${t('teacher.gradeLabel')} ${g.value}`}
                     </option>
                   ))}
                 </select>
               </label>
-              <select value={dif} onChange={(ev) => setDif(ev.target.value)}>
-                <option value="facil">{t('act.facil')}</option>
-                <option value="intermedio">{t('act.intermedio')}</option>
-                <option value="avanzado">{t('act.avanzado')}</option>
-              </select>
+              <p className="teacher-grade-hint">
+                {t('teacher.levelEdu')}: <strong>{edu}</strong>
+              </p>
+              {grades.length ? (
+                <label>
+                  {t('teacher.gradeInstitutional')}
+                  <select value={gradeId} onChange={(ev) => setGradeId(ev.target.value)}>
+                    <option value="">{t('teacher.gradeInstitutionalOpt')}</option>
+                    {grades.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <label>
+                {t('teacher.colDifficulty')}
+                <select value={dif} onChange={(ev) => setDif(ev.target.value)}>
+                  <option value="facil">{t('act.facil')}</option>
+                  <option value="intermedio">{t('act.intermedio')}</option>
+                  <option value="avanzado">{t('act.avanzado')}</option>
+                </select>
+              </label>
               <button type="submit">{t('teacher.saveGroup')}</button>
             </form>
             <div className="doc-card-list">
@@ -4237,6 +4593,7 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
                 <thead>
                   <tr>
                     <th>{t('teacher.colName')}</th>
+                    <th>{t('teacher.colGrade')}</th>
                     <th>{t('teacher.colDifficulty')}</th>
                     <th>{t('teacher.colStudents')}</th>
                     <th>{t('teacher.colActions')}</th>
@@ -4246,6 +4603,7 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
                   {groups.map((g) => (
                     <tr key={g.id}>
                       <td className="td-wrap">{g.name}</td>
+                      <td>{g.grade || g.education_level || '—'}</td>
                       <td>{labelSlug(g.difficulty_default)}</td>
                       <td>{g.students}</td>
                       <td>
@@ -4311,98 +4669,6 @@ export function TeacherGroupsPanel({ t, notify, navigateHome, navigateTo }) {
               ) : null}
             </div>
           </div>
-          <div className="doc-grid-two">
-            <section className="doc-card-form">
-              <h3>{t('teacher.actFormShortTitle')}</h3>
-              <input value={actTitle} onChange={(ev) => setActTitle(ev.target.value)} placeholder={t('teacher.actTitlePh')} />
-              <textarea value={actDesc} onChange={(ev) => setActDesc(ev.target.value)} placeholder={t('teacher.actDescPh')} rows={3} />
-              <label>
-                {t('teacher.actAssignGroupLbl')}
-                <select value={actGroupSel} onChange={(ev) => setActGroupSel(ev.target.value)}>
-                  <option value="">{t('teacher.actPickGroupOpt')}</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('teacher.actStateLbl')}
-                <select value={actWorkflow} onChange={(ev) => setActWorkflow(ev.target.value)}>
-                  <option value="activa">{t('teacher.statusActive')}</option>
-                  <option value="borrador">{t('teacher.statusDraft')}</option>
-                  <option value="programada">{t('teacher.statusScheduled')}</option>
-                </select>
-              </label>
-              <select value={actCategory} onChange={(ev) => setActCategory(ev.target.value)}>
-                <option value="comida">comida</option>
-                <option value="animales">animales</option>
-                <option value="familia_personas">familia_personas</option>
-              </select>
-              <select value={actMode} onChange={(ev) => setActMode(ev.target.value)}>
-                <option value="quiz">{t('teacher.modeQuiz')}</option>
-                <option value="completar">{t('teacher.modeComplete')}</option>
-                <option value="imagen">{t('teacher.modeImage')}</option>
-              </select>
-              <button type="button" onClick={createActivity}>
-                {t('teacher.actSave')}
-              </button>
-            </section>
-            <section className="doc-card-list">
-              <h3>{t('teacher.createdActsTitle')}</h3>
-              {!activities.length ? <p>{t('practice.empty')}</p> : null}
-              <ul className="cms-list">
-                {activities.slice(0, 20).map((a) => (
-                  <li key={a.id}>
-                    <strong>{a.title}</strong> <small>({a.category} · {a.difficulty} · {a.mode})</small>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </div>
-          <section className="doc-card-form">
-            <h3>{t('teacher.proposeSectionTitle')}</h3>
-            <input
-              value={submission.title}
-              onChange={(ev) => setSubmission((s) => ({ ...s, title: ev.target.value }))}
-              placeholder={t('teacher.proposePhTitle')}
-            />
-            <input
-              value={submission.espanol}
-              onChange={(ev) => setSubmission((s) => ({ ...s, espanol: ev.target.value }))}
-              placeholder={t('teacher.proposePhEspanol')}
-            />
-            <input
-              value={submission.nasa_yuwe}
-              onChange={(ev) => setSubmission((s) => ({ ...s, nasa_yuwe: ev.target.value }))}
-              placeholder={t('teacher.proposePhNasa')}
-            />
-            <input
-              value={submission.translation}
-              onChange={(ev) => setSubmission((s) => ({ ...s, translation: ev.target.value }))}
-              placeholder={t('teacher.proposePhTrans')}
-            />
-            <input
-              value={submission.image_url}
-              onChange={(ev) => setSubmission((s) => ({ ...s, image_url: ev.target.value }))}
-              placeholder={t('teacher.proposePhImg')}
-            />
-            <input
-              value={submission.audio_url}
-              onChange={(ev) => setSubmission((s) => ({ ...s, audio_url: ev.target.value }))}
-              placeholder={t('teacher.proposePhAudio')}
-            />
-            <textarea
-              value={submission.notes}
-              onChange={(ev) => setSubmission((s) => ({ ...s, notes: ev.target.value }))}
-              placeholder={t('teacher.proposePhNotes')}
-              rows={3}
-            />
-            <button type="button" onClick={sendSubmission}>
-              {t('teacher.proposeSubmitBtn')}
-            </button>
-          </section>
         </>
       )}
     </div>

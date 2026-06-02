@@ -5,8 +5,36 @@ import {
   markDictionaryImageLoaded,
 } from './dictionaryImagePrefetch'
 
+/** Clasifica la imagen y devuelve clase + aspect-ratio del contenedor. */
+function measureImageFit(naturalWidth, naturalHeight) {
+  if (!naturalWidth || !naturalHeight) {
+    return { fitClass: 'yuwe-dict-img--square', aspectRatio: 1 }
+  }
+  const ratio = naturalWidth / naturalHeight
+  if (ratio >= 1.12) {
+    return {
+      fitClass: 'yuwe-dict-img--wide',
+      aspectRatio: Math.min(1.9, Math.max(1.08, ratio)),
+    }
+  }
+  if (ratio <= 0.88) {
+    return {
+      fitClass: 'yuwe-dict-img--tall',
+      aspectRatio: Math.max(0.58, Math.min(0.92, ratio)),
+    }
+  }
+  return { fitClass: 'yuwe-dict-img--square', aspectRatio: 1 }
+}
+
+function wrapClass(variant, fitClass) {
+  if (variant === 'card') return `yuwe-dict-card-img${fitClass ? ` ${fitClass}` : ''}`
+  if (variant === 'hero') return `yuwe-dict-hero-visual${fitClass ? ` ${fitClass}` : ''}`
+  if (variant === 'thumb') return `yuwe-dict-related-thumb${fitClass ? ` ${fitClass}` : ''}`
+  return 'yuwe-dict-img-io-wrap'
+}
+
 /**
- * Ilustración del corpus: una sola petición por imagen (sin prefetch + img duplicado).
+ * Ilustración del corpus: el marco se adapta a la proporción real (sin recortar).
  */
 export function DictionaryTermImage({
   src,
@@ -22,6 +50,14 @@ export function DictionaryTermImage({
   const [inView, setInView] = useState(eager)
   const [ready, setReady] = useState(() => Boolean(src && isDictionaryImageCached(src)))
   const [failed, setFailed] = useState(false)
+  const [fit, setFit] = useState({ fitClass: '', aspectRatio: null })
+
+  useEffect(() => {
+    setFit({ fitClass: '', aspectRatio: null })
+    setFailed(false)
+    setReady(Boolean(src && isDictionaryImageCached(src)))
+    if (!eager) setInView(false)
+  }, [src, eager])
 
   useEffect(() => {
     if (eager) {
@@ -43,9 +79,7 @@ export function DictionaryTermImage({
 
   useEffect(() => {
     if (!src || !url || failed || !inView || ready) return undefined
-    if (isDictionaryImageCached(src)) {
-      setReady(true)
-    }
+    if (isDictionaryImageCached(src)) setReady(true)
     return undefined
   }, [src, url, failed, inView, ready])
 
@@ -54,14 +88,25 @@ export function DictionaryTermImage({
   const showSkeleton = inView && !ready && !failed
   const startLoad = inView && !failed
 
-  const handleLoad = () => {
+  const applyImageMetrics = (imgEl) => {
+    if (!imgEl?.naturalWidth) return
+    setFit(measureImageFit(imgEl.naturalWidth, imgEl.naturalHeight))
     markDictionaryImageLoaded(url)
     setReady(true)
   }
 
-  const bindImgRef = (el) => {
-    if (el?.complete && el.naturalWidth > 0) handleLoad()
+  const handleLoad = (e) => {
+    applyImageMetrics(e?.target)
   }
+
+  const bindImgRef = (el) => {
+    if (el?.complete && el.naturalWidth > 0) applyImageMetrics(el)
+  }
+
+  const wrapStyle =
+    fit.aspectRatio && variant !== 'thumb'
+      ? { aspectRatio: String(fit.aspectRatio) }
+      : undefined
 
   const img = startLoad ? (
     <img
@@ -89,31 +134,15 @@ export function DictionaryTermImage({
     </div>
   ) : null
 
-  if (variant === 'card') {
+  const wrapCls = wrapClass(variant, fit.fitClass)
+
+  if (variant === 'card' || variant === 'hero' || variant === 'thumb') {
     return (
-      <div ref={wrapRef} className="yuwe-dict-card-img">
+      <div ref={wrapRef} className={wrapCls} style={wrapStyle}>
         {placeholder}
         {missing}
         {img}
       </div>
-    )
-  }
-  if (variant === 'hero') {
-    return (
-      <div ref={wrapRef} className="yuwe-dict-hero-visual">
-        {placeholder}
-        {missing}
-        {img}
-      </div>
-    )
-  }
-  if (variant === 'thumb') {
-    return (
-      <span ref={wrapRef} className="yuwe-dict-related-thumb">
-        {placeholder}
-        {missing}
-        {img}
-      </span>
     )
   }
 
@@ -121,7 +150,7 @@ export function DictionaryTermImage({
     return <span ref={wrapRef} className="yuwe-dict-img-io-anchor" aria-hidden />
   }
   return (
-    <span ref={wrapRef} className="yuwe-dict-img-io-wrap">
+    <span ref={wrapRef} className={wrapCls} style={wrapStyle}>
       {placeholder}
       {missing}
       {img}

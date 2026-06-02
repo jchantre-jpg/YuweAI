@@ -227,6 +227,10 @@ export function createTeacherActivity(token, body) {
   return postJson('/api/teacher/activities', body, token)
 }
 
+export function assignTeacherActivity(token, body) {
+  return postJson('/api/teacher/activity-assign', body, token)
+}
+
 export function submitTeacherContent(token, body) {
   return postJson('/api/teacher/content-submit', body, token)
 }
