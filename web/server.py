@@ -7,6 +7,7 @@ import re
 import secrets
 from avi_db import USE_POSTGRES, connect_auth, insert_returning_id, scalar_from_row
 import solo_images_bootstrap
+import firebase_storage_urls
 import threading
 import time
 import hashlib
@@ -189,6 +190,18 @@ def _local_solo_image_payload(query: str, category: str, term_id: str = "") -> d
         rel = by_lex.get(k, "")
     if not rel:
         return None
+    fb = firebase_storage_urls.firebase_corpus_image_url(rel)
+    if fb:
+        return {
+            "ok": True,
+            "query": normalize_text(query or ""),
+            "image_url": fb,
+            "thumb_url": fb,
+            "source_url": "",
+            "license": "ilustracion corpus YuweAI (generada)",
+            "author": "corpus generadas-img-ia-solo",
+            "source": "firebase_storage",
+        }
     try:
         p = (SOLO_IMG_DIR / rel).resolve()
         root = SOLO_IMG_DIR.resolve()
@@ -225,6 +238,16 @@ def _term_local_image_url(term_id: str = "", query: str = "", category: str = ""
         return None
     rel = str(rel).strip().replace("\\", "/").lstrip("/")
     if not rel or ".." in rel:
+        return None
+    fb = firebase_storage_urls.firebase_corpus_image_url(rel)
+    if fb:
+        return fb
+    try:
+        p = (SOLO_IMG_DIR / rel).resolve()
+        root = SOLO_IMG_DIR.resolve()
+    except OSError:
+        return None
+    if not str(p).startswith(str(root)) or not p.is_file():
         return None
     return f"/api/corpus-img/{rel}"
 
@@ -5283,6 +5306,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
                     "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
                     "solo_bootstrap": solo_images_bootstrap.bootstrap_status(),
+                    "firebase_storage": firebase_storage_urls.firebase_storage_enabled(),
                     "message": "AVI operativo",
                 },
                 ensure_ascii=False,
@@ -5459,6 +5483,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
                     "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
                     "solo_bootstrap": solo_images_bootstrap.bootstrap_status(),
+                    "firebase_storage": firebase_storage_urls.firebase_storage_enabled(),
                     "message": "AVI operativo",
                 }
             )
@@ -5567,6 +5592,16 @@ class AVIHandler(BaseHTTPRequestHandler):
                 self.send_error(500)
                 return
             if not str(p).startswith(str(root)) or not p.is_file():
+                fb = firebase_storage_urls.firebase_corpus_image_url(rel)
+                if fb:
+                    acao = _cors_allow_origin(self)
+                    self.send_response(302)
+                    self.send_header("Location", fb)
+                    self.send_header("Cache-Control", "public, max-age=604800")
+                    if acao:
+                        self.send_header("Access-Control-Allow-Origin", acao)
+                    self.end_headers()
+                    return
                 self.send_error(404, "PNG no encontrado")
                 return
             if p.suffix.lower() != ".png":
@@ -5634,7 +5669,10 @@ def run():
         f"[AVI] Seguridad: rate-limit auth {AUTH_RL_MAX}/{int(AUTH_RL_WINDOW_SEC)}s por IP | "
         f"CORS={'lista AVI_CORS_ORIGINS' if CORS_ALLOWED_ORIGINS else '* (desarrollo)'}",
     )
-    solo_images_bootstrap.start_background_fetch(SOLO_IMG_DIR)
+    if firebase_storage_urls.firebase_storage_enabled():
+        print(f"[AVI] Imagenes del diccionario via Firebase Storage ({os.environ.get('FIREBASE_STORAGE_BUCKET', '')})", flush=True)
+    else:
+        solo_images_bootstrap.start_background_fetch(SOLO_IMG_DIR)
     server.serve_forever()
 
 

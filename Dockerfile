@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY web/server.py ./
 COPY web/solo_images_bootstrap.py ./
+COPY web/firebase_storage_urls.py ./
 COPY web/avi_db.py ./
 COPY web/static ./static/
 COPY web/models ./models/
