@@ -13,6 +13,15 @@ _BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 _PREFIX = (os.environ.get("FIREBASE_STORAGE_PREFIX", "corpus-img") or "corpus-img").strip("/")
 
 
+def is_safe_corpus_rel_path(rel: str) -> bool:
+    """Rechaza traversal (../); permite nombres como en_vez._._..png donde '..' es parte del nombre."""
+    rel = str(rel or "").strip().replace("\\", "/").lstrip("/")
+    if not rel:
+        return False
+    parts = rel.split("/")
+    return all(p not in ("", ".", "..") for p in parts)
+
+
 def remote_images_enabled() -> bool:
     return bool(_CDN_BASE or _BUCKET)
 
@@ -27,7 +36,7 @@ def cdn_base() -> str:
 
 def remote_corpus_image_url(rel: str) -> str | None:
     rel = str(rel or "").strip().replace("\\", "/").lstrip("/")
-    if not rel or ".." in rel or not rel.lower().endswith(".png"):
+    if not is_safe_corpus_rel_path(rel) or not rel.lower().endswith(".png"):
         return None
     if _CDN_BASE:
         return f"{_CDN_BASE}/{rel}"

@@ -237,7 +237,7 @@ def _term_local_image_url(term_id: str = "", query: str = "", category: str = ""
     if not rel:
         return None
     rel = str(rel).strip().replace("\\", "/").lstrip("/")
-    if not rel or ".." in rel:
+    if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
         return None
     fb = firebase_storage_urls.firebase_corpus_image_url(rel)
     if fb:
@@ -5583,10 +5583,10 @@ class AVIHandler(BaseHTTPRequestHandler):
             return
         if route.startswith("/api/corpus-img/"):
             rel = route[len("/api/corpus-img/") :].lstrip("/")
-            if not rel or ".." in rel:
+            rel = unquote(rel).replace("\\", "/").lstrip("/")
+            if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
                 self.send_error(400, "Bad path")
                 return
-            rel = unquote(rel).replace("\\", "/").lstrip("/")
             try:
                 p = (SOLO_IMG_DIR / rel).resolve()
                 root = SOLO_IMG_DIR.resolve()
