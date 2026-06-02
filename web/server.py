@@ -5307,6 +5307,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
                     "solo_bootstrap": solo_images_bootstrap.bootstrap_status(),
                     "firebase_storage": firebase_storage_urls.firebase_storage_enabled(),
+                    "solo_img_cdn": firebase_storage_urls.cdn_base() or None,
                     "message": "AVI operativo",
                 },
                 ensure_ascii=False,
@@ -5484,6 +5485,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
                     "solo_bootstrap": solo_images_bootstrap.bootstrap_status(),
                     "firebase_storage": firebase_storage_urls.firebase_storage_enabled(),
+                    "solo_img_cdn": firebase_storage_urls.cdn_base() or None,
                     "message": "AVI operativo",
                 }
             )
@@ -5669,8 +5671,9 @@ def run():
         f"[AVI] Seguridad: rate-limit auth {AUTH_RL_MAX}/{int(AUTH_RL_WINDOW_SEC)}s por IP | "
         f"CORS={'lista AVI_CORS_ORIGINS' if CORS_ALLOWED_ORIGINS else '* (desarrollo)'}",
     )
-    if firebase_storage_urls.firebase_storage_enabled():
-        print(f"[AVI] Imagenes del diccionario via Firebase Storage ({os.environ.get('FIREBASE_STORAGE_BUCKET', '')})", flush=True)
+    if firebase_storage_urls.remote_images_enabled():
+        src = firebase_storage_urls.cdn_base() or os.environ.get("FIREBASE_STORAGE_BUCKET", "")
+        print(f"[AVI] Imagenes del diccionario via CDN remoto ({src})", flush=True)
     else:
         solo_images_bootstrap.start_background_fetch(SOLO_IMG_DIR)
     server.serve_forever()

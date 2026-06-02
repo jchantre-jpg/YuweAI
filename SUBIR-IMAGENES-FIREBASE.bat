@@ -2,8 +2,10 @@
 chcp 65001 >nul
 cd /d "%~dp0.."
 echo ========================================
-echo  Subir imagenes del diccionario a Firebase Storage
-echo  Proyecto: yuwe-ai (plan Spark = gratis con limites)
+echo  Subir imagenes a Firebase Storage
+echo  ATENCION: Firebase Storage pide plan Blaze ^(tarjeta^).
+echo  No cobra si no pasas ~5 GB almacenados / 1 GB descarga al dia.
+echo  Si NO quieres tarjeta: usa SUBIR-IMAGENES-HUGGINGFACE.bat
 echo ========================================
 echo.
 

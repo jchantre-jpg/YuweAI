@@ -31,11 +31,14 @@ services:
         value: "1"
       - key: SOLO_IMG_SKIP_IF_COUNT
         value: "2000"
-      # Imagenes del diccionario en Firebase Storage (gratis ~5 GB; Render no guarda PNG).
-      - key: FIREBASE_STORAGE_BUCKET
-        value: yuwe-ai.firebasestorage.app
-      - key: FIREBASE_STORAGE_PREFIX
-        value: corpus-img
+      # CDN imagenes (Hugging Face = gratis sin tarjeta). Firebase Storage pide plan Blaze.
+      - key: SOLO_IMG_CDN_BASE
+        value: https://huggingface.co/datasets/Juliana08/yuwe-dict-images/resolve/main
+      # Opcional Firebase (requiere tarjeta Blaze): descomenta y sube con SUBIR-IMAGENES-FIREBASE.bat
+      # - key: FIREBASE_STORAGE_BUCKET
+      #   value: yuwe-ai.firebasestorage.app
+      # - key: FIREBASE_STORAGE_PREFIX
+      #   value: corpus-img
       - key: DATABASE_URL
         sync: false
       # Opcional: OAuth Google en el servidor (si lo usas, añade en el dashboard o descomenta con sync: false)
