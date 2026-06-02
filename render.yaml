@@ -22,9 +22,15 @@ services:
         value: https://yuwe-ai.web.app,https://yuwe-ai.firebaseapp.com
       - key: AVI_SKIP_DEMO_USERS
         value: "1"
-      # PNG diccionario: se descargan al ARRANCAR el servidor (no en build). Borra SOLO_IMG_TARBALL_PARTS si existe en el panel.
+      # PNG diccionario: stream al arrancar (NO usa /tmp). Plan free: no re-descarga 5 GB si ya hay ~2000+ PNG.
       - key: SOLO_IMG_TARBALL_URL
         value: https://huggingface.co/Juliana08/yuwe-solo-img-tarball/resolve/main/solo-img-ia.tar.gz
+      - key: SOLO_IMG_DEFER_SECONDS
+        value: "45"
+      - key: SOLO_IMG_SKIP_REDOWLOAD
+        value: "1"
+      - key: SOLO_IMG_SKIP_IF_COUNT
+        value: "2000"
       - key: DATABASE_URL
         sync: false
       # Opcional: OAuth Google en el servidor (si lo usas, añade en el dashboard o descomenta con sync: false)

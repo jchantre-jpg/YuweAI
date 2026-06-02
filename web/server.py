@@ -5282,6 +5282,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "training_rows": ENGINE.model.get("training_rows", 0),
                     "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
                     "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
+                    "solo_bootstrap": solo_images_bootstrap.bootstrap_status(),
                     "message": "AVI operativo",
                 },
                 ensure_ascii=False,
@@ -5457,6 +5458,7 @@ class AVIHandler(BaseHTTPRequestHandler):
                     "training_rows": ENGINE.model.get("training_rows", 0),
                     "solo_png_count": solo_images_bootstrap.png_count(SOLO_IMG_DIR),
                     "solo_images_ready": solo_images_bootstrap.is_corpus_complete(SOLO_IMG_DIR),
+                    "solo_bootstrap": solo_images_bootstrap.bootstrap_status(),
                     "message": "AVI operativo",
                 }
             )

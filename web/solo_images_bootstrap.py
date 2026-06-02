@@ -1,97 +1,117 @@
-"""Descarga corpus/generadas-img-ia-solo en runtime si faltan PNG (Render build sin 5 GB)."""
+"""Descarga corpus/generadas-img-ia-solo en runtime (Render: sin tarball en /tmp)."""
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
-import tarfile
 import threading
-import tempfile
+import time
 from pathlib import Path
 
 _MIN_PNG = int(os.environ.get("SOLO_IMG_MIN_PNG", "100"))
 _TARGET_PNG = int(os.environ.get("SOLO_IMG_TARGET_PNG", "3600"))
+_DEFER_SECONDS = int(os.environ.get("SOLO_IMG_DEFER_SECONDS", "45"))
+# En plan free: no reintentar 5 GB si ya hay corpus parcial (evita bucle OOM/eviction).
+_SKIP_REDOWLOAD = os.environ.get("SOLO_IMG_SKIP_REDOWLOAD", "1") == "1"
+_SKIP_IF_COUNT = int(os.environ.get("SOLO_IMG_SKIP_IF_COUNT", "2000"))
 _lock = threading.Lock()
 _started = False
+_bootstrap_status = "idle"  # idle | waiting | downloading | done | error | skipped
+
+
+def bootstrap_status() -> str:
+    return _bootstrap_status
 
 
 def png_count(img_dir: Path) -> int:
     if not img_dir.is_dir():
         return 0
-    return sum(1 for _ in img_dir.rglob("*.png"))
+    n = 0
+    for _root, _dirs, files in os.walk(img_dir):
+        n += sum(1 for f in files if f.lower().endswith(".png"))
+    return n
 
 
 def is_corpus_complete(img_dir: Path) -> bool:
     return png_count(img_dir) >= _TARGET_PNG
 
 
-def _merge_tree(src: Path, dest: Path) -> None:
-    """Copia archivos sin borrar categorias ya presentes (reanuda extracciones parciales)."""
+def _shell_stream_extract(urls: list[str], dest: Path) -> None:
+    """
+    curl | tar directo al destino (cero bytes en /tmp).
+    --skip-old-files reanuda sin sobrescribir PNG ya extraidos.
+    """
     dest.mkdir(parents=True, exist_ok=True)
-    for item in src.rglob("*"):
-        if not item.is_file():
-            continue
-        rel = item.relative_to(src)
-        out = dest / rel
-        out.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(item, out)
+    dest_s = str(dest).replace('"', '\\"')
+    if len(urls) == 1:
+        curl_part = f'curl -fSL "{urls[0]}"'
+    else:
+        inner = "; ".join(f'curl -fSL "{u}"' for u in urls)
+        curl_part = f"( {inner} )"
 
-
-def _extract_tarball(tar_path: Path, dest: Path) -> None:
-    with tempfile.TemporaryDirectory(prefix="solo_ex_") as tmp:
-        root = Path(tmp)
-        with tarfile.open(tar_path, "r:gz") as tf:
-            tf.extractall(root)
-        nested = root / "generadas-img-ia-solo"
-        src = nested if nested.is_dir() else root
-        _merge_tree(src, dest)
-
-
-def _curl_download(url: str, out: Path) -> None:
+    # --strip-components=1 quita generadas-img-ia-solo/ del path en el tar.
+    script = (
+        f"{curl_part} | "
+        f'tar -xz --skip-old-files --no-same-owner --warning=no-timestamp '
+        f'-C "{dest_s}" --strip-components=1'
+    )
+    print(f"[solo bootstrap] Stream extract -> {dest} ({len(urls)} URL(s))", flush=True)
     subprocess.run(
-        ["curl", "-fSL", url, "-o", str(out)],
+        ["sh", "-c", script],
         check=True,
         timeout=7200,
     )
 
 
 def fetch_if_needed(img_dir: Path) -> int:
-    """Descarga tarball si faltan PNG. Devuelve conteo final."""
+    """Descarga/extrae tarball si faltan PNG. Devuelve conteo final."""
+    global _bootstrap_status
+
     n = png_count(img_dir)
     if is_corpus_complete(img_dir):
+        _bootstrap_status = "done"
         print(f"[solo bootstrap] Corpus completo: {n} PNG en {img_dir}", flush=True)
         return n
-    if n >= _MIN_PNG:
-        print(f"[solo bootstrap] Parcial ({n}/{_TARGET_PNG}); reanudando descarga...", flush=True)
+
+    if _SKIP_REDOWLOAD and n >= _SKIP_IF_COUNT:
+        _bootstrap_status = "skipped"
+        print(
+            f"[solo bootstrap] Parcial ({n} PNG) — omitiendo descarga 5 GB en plan free. "
+            f"Sube a Starter+disco o SOLO_IMG_FORCE_REDOWLOAD=1.",
+            flush=True,
+        )
+        return n
+
+    if _SKIP_REDOWLOAD and n >= _MIN_PNG and os.environ.get("SOLO_IMG_FORCE_REDOWLOAD", "0") != "1":
+        _bootstrap_status = "skipped"
+        print(
+            f"[solo bootstrap] Parcial ({n}/{_TARGET_PNG}); no se repite descarga "
+            f"(SOLO_IMG_FORCE_REDOWLOAD=1 para forzar).",
+            flush=True,
+        )
+        return n
 
     parts_raw = (os.environ.get("SOLO_IMG_TARBALL_PARTS") or "").strip()
     url = (os.environ.get("SOLO_IMG_TARBALL_URL") or "").strip()
-    if not parts_raw and not url:
+    urls: list[str] = []
+    if parts_raw:
+        urls = [p.strip() for p in parts_raw.split(",") if p.strip()]
+    elif url:
+        urls = [url]
+
+    if not urls:
+        _bootstrap_status = "skipped"
         print(f"[solo bootstrap] Sin URL; solo {n} PNG en disco", flush=True)
         return n
 
     img_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="solo_dl_") as tmp:
-        tar_path = Path(tmp) / "solo-img-ia.tar.gz"
-        if parts_raw:
-            print("[solo bootstrap] Descargando SOLO_IMG_TARBALL_PARTS ...", flush=True)
-            part_files: list[Path] = []
-            for i, part_url in enumerate(
-                (p.strip() for p in parts_raw.split(",") if p.strip()), start=1
-            ):
-                part_path = Path(tmp) / f"part{i:03d}"
-                print(f"[solo bootstrap] Parte {i}: {part_url[:80]}...", flush=True)
-                _curl_download(part_url, part_path)
-                part_files.append(part_path)
-            with tar_path.open("wb") as out:
-                for pf in part_files:
-                    out.write(pf.read_bytes())
-        else:
-            print(f"[solo bootstrap] Descargando SOLO_IMG_TARBALL_URL ...", flush=True)
-            _curl_download(url, tar_path)
-
-        print(f"[solo bootstrap] Extrayendo {tar_path.stat().st_size / 1e9:.2f} GB ...", flush=True)
-        _extract_tarball(tar_path, img_dir)
+    _bootstrap_status = "downloading"
+    try:
+        _shell_stream_extract(urls, img_dir)
+        _bootstrap_status = "done"
+    except Exception as exc:
+        _bootstrap_status = "error"
+        print(f"[solo bootstrap] ERROR en stream: {exc}", flush=True)
+        raise
 
     n = png_count(img_dir)
     print(f"[solo bootstrap] Listo: {n} PNG", flush=True)
@@ -106,9 +126,15 @@ def start_background_fetch(img_dir: Path) -> None:
         _started = True
 
     def _run() -> None:
+        global _bootstrap_status
+        if _DEFER_SECONDS > 0:
+            _bootstrap_status = "waiting"
+            print(f"[solo bootstrap] Esperando {_DEFER_SECONDS}s (API arriba primero)...", flush=True)
+            time.sleep(_DEFER_SECONDS)
         try:
             fetch_if_needed(img_dir)
         except Exception as exc:
+            _bootstrap_status = "error"
             print(f"[solo bootstrap] ERROR: {exc}", flush=True)
 
     threading.Thread(target=_run, daemon=True, name="solo-img-bootstrap").start()
