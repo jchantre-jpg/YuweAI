@@ -46,6 +46,8 @@ export function DictionaryTermImage({
 }) {
   const url = apiAssetUrl(src)
   const wrapRef = useRef(null)
+  const imgRef = useRef(null)
+  const metricsDoneRef = useRef(false)
   const eager = priority === 'high'
   const [inView, setInView] = useState(eager)
   const [ready, setReady] = useState(() => Boolean(src && isDictionaryImageCached(src)))
@@ -53,17 +55,16 @@ export function DictionaryTermImage({
   const [fit, setFit] = useState({ fitClass: '', aspectRatio: null })
 
   useEffect(() => {
+    metricsDoneRef.current = false
     setFit({ fitClass: '', aspectRatio: null })
     setFailed(false)
     setReady(Boolean(src && isDictionaryImageCached(src)))
     if (!eager) setInView(false)
+    else setInView(true)
   }, [src, eager])
 
   useEffect(() => {
-    if (eager) {
-      setInView(true)
-      return undefined
-    }
+    if (eager) return undefined
     const el = wrapRef.current
     if (!el) return undefined
     const margin = priority === 'low' ? '80px' : rootMargin
@@ -77,19 +78,9 @@ export function DictionaryTermImage({
     return () => io.disconnect()
   }, [eager, priority, rootMargin, src])
 
-  useEffect(() => {
-    if (!src || !url || failed || !inView || ready) return undefined
-    if (isDictionaryImageCached(src)) setReady(true)
-    return undefined
-  }, [src, url, failed, inView, ready])
-
-  if (!url) return null
-
-  const showSkeleton = inView && !ready && !failed
-  const startLoad = inView && !failed
-
   const applyImageMetrics = (imgEl) => {
-    if (!imgEl?.naturalWidth) return
+    if (!imgEl?.naturalWidth || metricsDoneRef.current) return
+    metricsDoneRef.current = true
     setFit(measureImageFit(imgEl.naturalWidth, imgEl.naturalHeight))
     markDictionaryImageLoaded(url)
     setReady(true)
@@ -99,9 +90,17 @@ export function DictionaryTermImage({
     applyImageMetrics(e?.target)
   }
 
-  const bindImgRef = (el) => {
+  useEffect(() => {
+    if (!inView || failed || ready) return undefined
+    const el = imgRef.current
     if (el?.complete && el.naturalWidth > 0) applyImageMetrics(el)
-  }
+    return undefined
+  }, [inView, failed, ready, url])
+
+  if (!url) return null
+
+  const showSkeleton = inView && !ready && !failed
+  const startLoad = inView && !failed
 
   const wrapStyle =
     fit.aspectRatio && variant !== 'thumb'
@@ -110,7 +109,7 @@ export function DictionaryTermImage({
 
   const img = startLoad ? (
     <img
-      ref={bindImgRef}
+      ref={imgRef}
       src={url}
       alt={alt}
       className={`${className} yuwe-dict-img-ready${ready ? ' is-visible' : ''}`.trim()}
