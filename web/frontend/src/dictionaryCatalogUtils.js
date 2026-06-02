@@ -38,6 +38,44 @@ export function isHiddenDictCategory(cat) {
   return HIDDEN_DICT_CATEGORIES.has(normalizeDictCategory(cat))
 }
 
+/** Nasa Yuwe normalizado (sin guiones iniciales, minúsculas). */
+export function normalizeNasaYuwe(ny) {
+  return String(ny || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^[-\s]+/, '')
+}
+
+/** Español núcleo: sin artículo, sin paréntesis, primera acepción. */
+export function coreSpanishGloss(espanol) {
+  let t = String(espanol || '')
+    .trim()
+    .toLowerCase()
+  t = t.replace(/\([^)]*\)/g, ' ')
+  t = t.replace(/^(el|la|los|las|un|una|unos|unas)\s+/i, '')
+  t = t.replace(/[.,;:!?]+/g, ' ')
+  t = t.replace(/\s+/g, ' ')
+    .trim()
+  if (t.includes(',')) t = t.split(',')[0].trim()
+  return t
+}
+
+/** Clave para fusionar entradas duplicadas (Am/am + Hacha/el hacha). */
+export function termSemanticKey(row) {
+  const t = row?.term || row
+  const ny = normalizeNasaYuwe(t?.nasa_yuwe)
+  const es = coreSpanishGloss(t?.espanol)
+  if (!ny || !es) return ''
+  return `${ny}|${es}`
+}
+
+function idRank(id) {
+  const s = String(id || '')
+  if (s.startsWith('LEX-')) return 2
+  if (s.startsWith('LEXR-')) return 1
+  return 0
+}
+
 function formatCategorySlug(slug) {
   if (!slug) return 'Sin categoría'
   return slug
@@ -65,10 +103,22 @@ export function pickPreferredCatalogRow(a, b) {
   if (Boolean(a.term.image_url) !== Boolean(b.term.image_url)) {
     return a.term.image_url ? a : b
   }
+  const ida = idRank(a.term.id)
+  const idb = idRank(b.term.id)
+  if (ida !== idb) return ida > idb ? a : b
+  const la = String(a.term.espanol || '').length
+  const lb = String(b.term.espanol || '').length
+  if (la !== lb) return la < lb ? a : b
+  const nya = String(a.term.nasa_yuwe || '')
+  const nyb = String(b.term.nasa_yuwe || '')
+  if (nya && nyb && nya !== nyb) {
+    if (nya[0] === nya[0]?.toUpperCase() && nyb[0] !== nyb[0]?.toUpperCase()) return a
+    if (nyb[0] === nyb[0]?.toUpperCase() && nya[0] !== nya[0]?.toUpperCase()) return b
+  }
   return a
 }
 
-/** Una entrada por término (evita 3922 duplicados por categoría repetida). */
+/** Una entrada por término: por id y por clave semántica (evita Am/am duplicados). */
 export function dedupeCatalogByTermId(rows) {
   const byId = new Map()
   for (const row of rows || []) {
@@ -78,7 +128,15 @@ export function dedupeCatalogByTermId(rows) {
     if (!prev) byId.set(id, row)
     else byId.set(id, pickPreferredCatalogRow(prev, row))
   }
-  return [...byId.values()]
+  const bySem = new Map()
+  for (const row of byId.values()) {
+    const sem = termSemanticKey(row)
+    const key = sem || `__id__:${row.term.id}`
+    const prev = bySem.get(key)
+    if (!prev) bySem.set(key, row)
+    else bySem.set(key, pickPreferredCatalogRow(prev, row))
+  }
+  return [...bySem.values()]
 }
 
 export function mergeCatalogRows(a, b) {

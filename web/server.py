@@ -149,6 +149,86 @@ def tokenize(text: str):
     return [t for t in normalize_text(text).split(" ") if t]
 
 
+def _norm_ny(text: str) -> str:
+    return normalize_text(re.sub(r"^[\-\s]+", "", str(text or "")))
+
+
+def _core_es(text: str) -> str:
+    t = normalize_text(str(text or ""))
+    t = re.sub(r"\([^)]*\)", " ", t)
+    t = re.sub(r"^(el|la|los|las|un|una|unos|unas)\s+", "", t)
+    t = re.sub(r"[.,;:!?]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    if "," in t:
+        t = t.split(",", 1)[0].strip()
+    return t
+
+
+def _term_semantic_key(term: dict) -> str:
+    ny = _norm_ny(term.get("nasa_yuwe", ""))
+    es = _core_es(term.get("espanol", ""))
+    if not ny or not es:
+        return ""
+    return f"{ny}|{es}"
+
+
+def _dict_category_rank(cat: str) -> int:
+    c = normalize_text(str(cat or "")).replace(" ", "_")
+    return 0 if c in {"general", "diccionario_general", "vocabulario_general"} else 1
+
+
+def _lex_id_rank(tid: str) -> int:
+    s = str(tid or "")
+    if s.startswith("LEX-"):
+        return 2
+    if s.startswith("LEXR-"):
+        return 1
+    return 0
+
+
+def _pick_preferred_lex_term(a: dict, b: dict) -> dict:
+    ra = _dict_category_rank(a.get("categoria", ""))
+    rb = _dict_category_rank(b.get("categoria", ""))
+    if ra != rb:
+        return a if ra > rb else b
+    if bool(a.get("image_url")) != bool(b.get("image_url")):
+        return a if a.get("image_url") else b
+    ida = _lex_id_rank(a.get("id"))
+    idb = _lex_id_rank(b.get("id"))
+    if ida != idb:
+        return a if ida > idb else b
+    la = len(str(a.get("espanol", "")))
+    lb = len(str(b.get("espanol", "")))
+    if la != lb:
+        return a if la < lb else b
+    nya = str(a.get("nasa_yuwe", ""))
+    nyb = str(b.get("nasa_yuwe", ""))
+    if nya and nyb and nya != nyb:
+        if nya[0].isupper() and not nyb[0].isupper():
+            return a
+        if nyb[0].isupper() and not nya[0].isupper():
+            return b
+    return a
+
+
+def _dedupe_lex_terms(terms: list[dict]) -> list[dict]:
+    """Una fila por id y por clave semántica (Am/am + Hacha/el hacha)."""
+    by_id: dict[str, dict] = {}
+    for t in terms:
+        tid = str(t.get("id") or "").strip()
+        if not tid:
+            continue
+        prev = by_id.get(tid)
+        by_id[tid] = _pick_preferred_lex_term(prev, t) if prev else t
+    by_sem: dict[str, dict] = {}
+    for t in by_id.values():
+        sk = _term_semantic_key(t)
+        key = sk or f"__id__:{t.get('id')}"
+        prev = by_sem.get(key)
+        by_sem[key] = _pick_preferred_lex_term(prev, t) if prev else t
+    return list(by_sem.values())
+
+
 def _get_solo_image_index() -> tuple[dict[str, str], dict[str, str]]:
     """(by_id, by_lex_key) rutas relativas PNG bajo corpus/generadas-img-ia-solo."""
     global _SOLO_IMAGE_INDEX
@@ -2009,7 +2089,7 @@ class CorpusEngine:
             )
             if len(out) >= cap:
                 break
-        return out
+        return _dedupe_lex_terms(out)
 
     def dictionary_search(self, raw_q: str) -> dict:
         """Busqueda de palabra para diccionario estudiantil (traduccion + sugerencias)."""
@@ -2052,8 +2132,20 @@ class CorpusEngine:
 
         lex_matches.sort(key=lambda x: x[0], reverse=True)
         if lex_matches:
-            best = lex_matches[0][1]
-            alt = [x[1] for x in lex_matches[1:12]]
+            groups: dict[str, list[tuple[int, dict]]] = {}
+            for score, entry in lex_matches:
+                sk = _term_semantic_key(entry) or f"__id__:{entry.get('id')}"
+                groups.setdefault(sk, []).append((score, entry))
+            ranked: list[tuple[int, dict]] = []
+            for items in groups.values():
+                items.sort(key=lambda x: x[0], reverse=True)
+                best_entry = items[0][1]
+                for _, e in items:
+                    best_entry = _pick_preferred_lex_term(best_entry, e)
+                ranked.append((items[0][0], best_entry))
+            ranked.sort(key=lambda x: x[0], reverse=True)
+            best = ranked[0][1]
+            alt = [x[1] for x in ranked[1:12]]
             return {"found": best, "alternatives": alt, "suggestions": [], "message": "Encontrado en el corpus."}
 
         # Sugerencias por similitud sobre lexico (espanol principal)
