@@ -25,6 +25,12 @@ def cdn_resolve_rel(rel: str) -> str:
     return _CDN_LEGACY_PATHS.get(rel, rel)
 
 
+def local_legacy_rel(rel: str) -> str | None:
+    """Si rel es nombre seguro nuevo, devuelve ruta legacy en disco (mismo PNG)."""
+    rel = str(rel or "").strip().replace("\\", "/").lstrip("/")
+    return _CDN_LEGACY_PATHS.get(rel)
+
+
 def is_safe_corpus_rel_path(rel: str) -> bool:
     """Rechaza traversal (../); permite nombres como en_vez._._..png donde '..' es parte del nombre."""
     rel = str(rel or "").strip().replace("\\", "/").lstrip("/")

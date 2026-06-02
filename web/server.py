@@ -299,13 +299,21 @@ def _respond_corpus_img(handler, rel: str) -> None:
     if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
         handler.send_error(400, "Bad path")
         return
-    try:
-        p = (SOLO_IMG_DIR / rel).resolve()
-        root = SOLO_IMG_DIR.resolve()
-    except OSError:
-        handler.send_error(500)
-        return
-    if not str(p).startswith(str(root)) or not p.is_file():
+    candidates = [rel]
+    legacy = firebase_storage_urls.local_legacy_rel(rel)
+    if legacy:
+        candidates.append(legacy)
+    p = None
+    root = SOLO_IMG_DIR.resolve()
+    for cand in candidates:
+        try:
+            trial = (SOLO_IMG_DIR / cand).resolve()
+        except OSError:
+            continue
+        if str(trial).startswith(str(root)) and trial.is_file():
+            p = trial
+            break
+    if p is None:
         fb = firebase_storage_urls.firebase_corpus_image_url(rel)
         if fb:
             acao = _cors_allow_origin(handler)
