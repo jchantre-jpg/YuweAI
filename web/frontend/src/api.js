@@ -5,19 +5,11 @@ const API_BASE =
   _rawBase ||
   (import.meta.env.PROD ? DEFAULT_PROD_API : '')
 
-/** Rutas del API (/api/corpus-img/...) en prod necesitan el host del backend. */
+/** Resuelve URL de imagen del diccionario. HF se sirve directo (CDN público); rutas /api/* van al backend. */
 export function apiAssetUrl(path) {
   if (!path) return ''
   const s = String(path).trim()
   if (/^https?:\/\//i.test(s) || s.startsWith('data:')) {
-    const hf = s.match(/huggingface\.co\/datasets\/[^/]+\/resolve\/main\/(.+)$/i)
-    if (hf && API_BASE) {
-      try {
-        return `${API_BASE}/api/corpus-img?rel=${encodeURIComponent(decodeURIComponent(hf[1]))}`
-      } catch {
-        return `${API_BASE}/api/corpus-img?rel=${encodeURIComponent(hf[1])}`
-      }
-    }
     return s
   }
   const p = s.startsWith('/') ? s : `/${s}`

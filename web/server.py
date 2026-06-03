@@ -286,10 +286,13 @@ def _local_solo_image_payload(query: str, category: str, term_id: str = "") -> d
 
 
 def _corpus_img_api_url(rel: str) -> str:
-    """Proxy estable: el navegador pide al API; Render sirve disco o redirige al CDN."""
+    """URL de imagen: CDN directo si está configurado; si no, proxy /api/corpus-img."""
     rel = str(rel or "").strip().replace("\\", "/").lstrip("/")
     if not firebase_storage_urls.is_safe_corpus_rel_path(rel):
         return ""
+    cdn = firebase_storage_urls.remote_corpus_image_url(rel)
+    if cdn:
+        return cdn
     return f"/api/corpus-img?rel={quote(rel, safe='')}"
 
 
