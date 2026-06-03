@@ -2497,6 +2497,13 @@ def init_auth_db() -> None:
     if USE_POSTGRES:
         auth_migrate_tables()
         auth_seed_demo_users()
+        with _AUTH_DB_LOCK:
+            conn = auth_connect()
+            try:
+                auth_ensure_panel_students_exist(conn, time.time())
+                conn.commit()
+            finally:
+                conn.close()
         print("[AVI] Base de datos: PostgreSQL (DATABASE_URL / Supabase).")
         return
     AUTH_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -2531,6 +2538,13 @@ def init_auth_db() -> None:
         conn.close()
     auth_migrate_tables()
     auth_seed_demo_users()
+    with _AUTH_DB_LOCK:
+        conn = auth_connect()
+        try:
+            auth_ensure_panel_students_exist(conn, time.time())
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def auth_migrate_tables() -> None:
@@ -2782,8 +2796,348 @@ def _ensure_seed_grade(conn, now: float) -> int:
     )
 
 
-def auth_seed_teacher_panel_demo_data(conn, now: float) -> int:
-    """Grupos, alumnos panel, actividades y asignaciones para DEMO_TEACHER_PANEL_ACCOUNTS."""
+# Cuenta del protocolo de prueba docente (misma contraseña que DEMO_LOGIN_PASSWORD).
+DEMO_TEACHER_PROTOCOL_ACCOUNT = ("docente.demo@nasayuwe.local", "Docente Demo", "docente")
+
+# Orden: primero la cuenta del protocolo para que reciba alumnos del pool panel.
+DEMO_TEACHERS_SEED_ORDER = (DEMO_TEACHER_PROTOCOL_ACCOUNT,) + DEMO_TEACHER_PANEL_ACCOUNTS
+
+
+def _teacher_wf_status_from_payload(raw_st: str) -> str:
+    st = normalize_text(raw_st or "active").lower()
+    if st in ("borrador", "draft"):
+        return "draft"
+    if st in ("programada", "scheduled"):
+        return "scheduled"
+    if st in ("completada", "completed", "completa"):
+        return "completed"
+    return "active"
+
+
+def _teacher_mode_from_payload(mode: str) -> str:
+    m = normalize_text(mode or "quiz").lower().replace(" ", "_")
+    if m in ("presentacion", "presentación", "leccion", "lección", "lesson"):
+        return "presentacion"
+    if m in ("quiz", "completar", "imagen"):
+        return m
+    if "complet" in m:
+        return "completar"
+    if "image" in m or "img" in m:
+        return "imagen"
+    return "quiz"
+
+
+def _group_engagement_pct(students: int, assigns_window: int) -> int:
+    """Avance coherente: sin estudiantes o sin tareas asignadas → 0 %."""
+    if students <= 0 or assigns_window <= 0:
+        return 0
+    # Aprox. 2 asignaciones por estudiante en el periodo ≈ 100 % de avance del grupo.
+    return min(100, round(50 * assigns_window / students))
+
+
+def _student_engagement_pct(group_students: int, assigns_window: int, student_id: int) -> int:
+    """Avance por estudiante (misma base del grupo + variación leve por alumno)."""
+    base = _group_engagement_pct(max(1, group_students), assigns_window)
+    if base <= 0:
+        return 0
+    delta = (int(student_id) % 11) - 5
+    return min(100, max(0, base + delta))
+
+
+def auth_is_demo_teacher_email(email: str) -> bool:
+    em = normalize_email(email)
+    return em in {normalize_email(x[0]) for x in DEMO_TEACHERS_SEED_ORDER}
+
+
+def auth_touch_stale_demo_assignments(conn, teacher_id: int, now: float, days_window: int = 30) -> int:
+    """Reubica asignaciones semilla AVI fuera del periodo para que el % del panel sea visible."""
+    cutoff = now - days_window * 86400
+    rows = conn.execute(
+        """
+        SELECT aa.id FROM activity_assignments aa
+        JOIN teacher_groups g ON g.id = aa.group_id
+        JOIN learning_activities a ON a.id = aa.activity_id
+        WHERE g.teacher_user_id = ?
+          AND a.description LIKE ?
+          AND aa.assigned_at < ?
+        ORDER BY aa.id
+        """,
+        (teacher_id, "Datos semilla AVI%", cutoff),
+    ).fetchall()
+    offsets = (3, 5, 7, 9, 11, 14, 18, 21, 24, 28)
+    for i, row in enumerate(rows):
+        conn.execute(
+            "UPDATE activity_assignments SET assigned_at = ? WHERE id = ?",
+            (now - 86400 * offsets[i % len(offsets)], int(row["id"])),
+        )
+    return len(rows)
+
+
+def auth_ensure_panel_students_exist(conn, now: float) -> int:
+    """Crea los 12 alumnos panel si no existen (funciona aunque AVI_SKIP_DEMO_USERS=1)."""
+    created = 0
+    ph_stu = auth_hash_password(DEMO_LOGIN_PASSWORD)
+    for email, display_name in DEMO_PANEL_STUDENTS:
+        norm = normalize_email(email)
+        if conn.execute("SELECT 1 FROM users WHERE email = ?", (norm,)).fetchone():
+            continue
+        conn.execute(
+            """
+            INSERT INTO users (
+                email, password_hash, google_sub, display_name, role, created_at, active, email_verified
+            ) VALUES (?, ?, NULL, ?, 'estudiante', ?, 1, 1)
+            """,
+            (norm, ph_stu, display_name, now),
+        )
+        created += 1
+    return created
+
+
+def auth_sync_teacher_workspace_data(conn, teacher_id: int, now: float) -> dict:
+    """Rellena alumnos de prueba en todos los grupos del docente y asignaciones para % visibles."""
+    panel_created = auth_ensure_panel_students_exist(conn, now)
+    row = conn.execute("SELECT email, display_name FROM users WHERE id = ?", (teacher_id,)).fetchone()
+    email = row["email"] if row else ""
+    if auth_is_demo_teacher_email(email):
+        has_seed = conn.execute(
+            "SELECT 1 FROM learning_activities WHERE creator_user_id = ? AND description LIKE ?",
+            (teacher_id, "Datos semilla AVI%"),
+        ).fetchone()
+        n_grp = int(
+            scalar_from_row(
+                conn.execute(
+                    "SELECT COUNT(*) FROM teacher_groups WHERE teacher_user_id = ?",
+                    (teacher_id,),
+                ).fetchone()
+            )
+            or 0
+        )
+        if not has_seed or n_grp < 1:
+            auth_seed_teacher_panel_demo_data(conn, now, only_teacher_id=teacher_id)
+    members_added = auth_ensure_teacher_groups_have_students(conn, teacher_id, now, min_per_group=2)
+    auth_touch_stale_demo_assignments(conn, teacher_id, now)
+    auth_ensure_teacher_groups_demo_engagement(conn, teacher_id, now)
+    n_groups = int(
+        scalar_from_row(
+            conn.execute(
+                "SELECT COUNT(*) FROM teacher_groups WHERE teacher_user_id = ?",
+                (teacher_id,),
+            ).fetchone()
+        )
+        or 0
+    )
+    n_students = int(
+        scalar_from_row(
+            conn.execute(
+                """
+                SELECT COUNT(*) FROM group_members m
+                JOIN teacher_groups g ON g.id = m.group_id
+                WHERE g.teacher_user_id = ?
+                """,
+                (teacher_id,),
+            ).fetchone()
+        )
+        or 0
+    )
+    return {
+        "panel_students_created": panel_created,
+        "members_added": members_added,
+        "groups": n_groups,
+        "students_in_groups": n_students,
+    }
+
+
+def auth_ensure_teacher_panel_ready(conn, teacher_id: int, now: float) -> None:
+    """Grupos, alumnos panel y asignaciones recientes para cuentas docente de demo."""
+    auth_sync_teacher_workspace_data(conn, teacher_id, now)
+
+
+def _teacher_group_metrics(conn, teacher_id: int, cutoff: float) -> list[dict]:
+    g_rows = conn.execute(
+        """
+        SELECT g.id, g.name,
+               (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS students,
+               (SELECT COUNT(*) FROM activity_assignments aa
+                WHERE aa.group_id = g.id AND aa.assigned_at >= ?) AS assigns_w
+        FROM teacher_groups g
+        WHERE g.teacher_user_id = ?
+        ORDER BY g.created_at DESC
+        """,
+        (cutoff, teacher_id),
+    ).fetchall()
+    out: list[dict] = []
+    for r in g_rows:
+        st = int(r["students"] or 0)
+        aw = int(r["assigns_w"] or 0)
+        out.append(
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "students": st,
+                "assignments_window": aw,
+                "bar_pct": _group_engagement_pct(st, aw),
+            }
+        )
+    return out
+
+
+def auth_ensure_teacher_groups_have_students(conn, teacher_id: int, now: float, min_per_group: int = 2) -> int:
+    """Rellena grupos vacíos del docente con alumnos demo del panel (para datos de prueba realistas)."""
+    panel_ids: list[int] = []
+    for em, _ in DEMO_PANEL_STUDENTS:
+        norm = normalize_email(em)
+        r = conn.execute("SELECT id FROM users WHERE email = ?", (norm,)).fetchone()
+        if r:
+            panel_ids.append(int(r["id"]))
+    if not panel_ids:
+        return 0
+
+    in_teacher = {
+        int(r["student_user_id"])
+        for r in conn.execute(
+            """
+            SELECT m.student_user_id FROM group_members m
+            JOIN teacher_groups g ON g.id = m.group_id
+            WHERE g.teacher_user_id = ?
+            """,
+            (teacher_id,),
+        ).fetchall()
+    }
+    # Solo excluir alumnos ya en grupos de ESTE docente (no bloquear por otros docentes demo).
+    available = [sid for sid in panel_ids if sid not in in_teacher]
+    if not available:
+        return 0
+
+    rows = conn.execute(
+        """
+        SELECT g.id,
+               (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS n_students
+        FROM teacher_groups g
+        WHERE g.teacher_user_id = ?
+        ORDER BY g.created_at ASC
+        """,
+        (teacher_id,),
+    ).fetchall()
+
+    added = 0
+    ai = 0
+    for row in rows:
+        gid = int(row["id"])
+        n_st = int(row["n_students"] or 0)
+        if n_st >= min_per_group:
+            continue
+        need = min_per_group - n_st
+        for _ in range(need):
+            if ai >= len(available):
+                return added
+            sid = available[ai]
+            ai += 1
+            other = conn.execute(
+                "SELECT m.group_id FROM group_members m WHERE m.student_user_id = ?",
+                (sid,),
+            ).fetchone()
+            if other and int(other["group_id"]) != gid:
+                conn.execute("DELETE FROM group_members WHERE student_user_id = ?", (sid,))
+            conn.execute(
+                "INSERT OR IGNORE INTO group_members (group_id, student_user_id, assigned_at) VALUES (?, ?, ?)",
+                (gid, sid, now - 86400 * 14),
+            )
+            in_teacher.add(sid)
+            added += 1
+    return added
+
+
+# Porcentajes visibles en panel docente demo (barras “llenas” de forma creíble).
+DEMO_GROUP_TARGET_PCTS = (78, 62, 45, 88, 55, 72)
+
+
+def _assigns_needed_for_target_pct(students: int, target_pct: int) -> int:
+    if students <= 0 or target_pct <= 0:
+        return 0
+    return max(1, int(math.ceil(target_pct * students / 50.0)))
+
+
+def _ensure_teacher_demo_activity_id(conn, teacher_id: int, now: float) -> int:
+    row = conn.execute(
+        """
+        SELECT id FROM learning_activities
+        WHERE creator_user_id = ? AND creator_role = 'docente'
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (teacher_id,),
+    ).fetchone()
+    if row:
+        return int(row["id"])
+    return insert_returning_id(
+        conn,
+        """
+        INSERT INTO learning_activities (
+            title, description, category, difficulty, mode, creator_user_id, creator_role, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'docente', 'active', ?, ?)
+        """,
+        (
+            "Actividad demo — panel docente",
+            f"{TEACHER_PANEL_SEED_DESC_MARKER} Asignación automática para avance visible.",
+            "saludos",
+            "intermedio",
+            "quiz",
+            teacher_id,
+            now,
+            now,
+        ),
+    )
+
+
+def auth_ensure_teacher_groups_demo_engagement(conn, teacher_id: int, now: float) -> None:
+    """Rellena grupos del docente demo y crea asignaciones recientes para % visibles en inicio."""
+    cutoff = now - 30 * 86400
+    auth_ensure_teacher_groups_have_students(conn, teacher_id, now, min_per_group=2)
+    aid = _ensure_teacher_demo_activity_id(conn, teacher_id, now)
+    groups = conn.execute(
+        """
+        SELECT g.id,
+               (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS n_students
+        FROM teacher_groups g
+        WHERE g.teacher_user_id = ?
+        ORDER BY g.created_at ASC
+        """,
+        (teacher_id,),
+    ).fetchall()
+    for i, g in enumerate(groups):
+        gid = int(g["id"])
+        st = int(g["n_students"] or 0)
+        if st <= 0:
+            continue
+        aw = int(
+            scalar_from_row(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) FROM activity_assignments
+                    WHERE group_id = ? AND assigned_at >= ?
+                    """,
+                    (gid, cutoff),
+                ).fetchone()
+            )
+            or 0
+        )
+        target = DEMO_GROUP_TARGET_PCTS[i % len(DEMO_GROUP_TARGET_PCTS)]
+        need = _assigns_needed_for_target_pct(st, target) - aw
+        if need <= 0:
+            continue
+        day_offsets = (4, 7, 10, 13, 16, 19, 22, 25)
+        for j in range(need):
+            conn.execute(
+                """
+                INSERT INTO activity_assignments (
+                    activity_id, grade_id, group_id, student_user_id, assigned_by_user_id, assigned_at
+                ) VALUES (?, NULL, ?, NULL, ?, ?)
+                """,
+                (aid, gid, teacher_id, now - 86400 * day_offsets[j % len(day_offsets)]),
+            )
+
+
+def auth_seed_teacher_panel_demo_data(conn, now: float, only_teacher_id: int | None = None) -> int:
+    """Grupos, alumnos panel, actividades y asignaciones para cuentas docente de demo."""
     seeded_teachers = 0
     panel_ids: list[int] = []
     for em, _ in DEMO_PANEL_STUDENTS:
@@ -2811,12 +3165,14 @@ def auth_seed_teacher_panel_demo_data(conn, now: float) -> int:
     grow = conn.execute("SELECT name FROM grades WHERE id = ?", (grade_id,)).fetchone()
     grade_label = (grow["name"] if grow else None) or "General"
 
-    for em, display_name, _role in DEMO_TEACHER_PANEL_ACCOUNTS:
+    for em, display_name, _role in DEMO_TEACHERS_SEED_ORDER:
         norm = normalize_email(em)
         ur = conn.execute("SELECT id FROM users WHERE email = ?", (norm,)).fetchone()
         if not ur:
             continue
         tid = int(ur["id"])
+        if only_teacher_id is not None and tid != only_teacher_id:
+            continue
         if conn.execute(
             "SELECT 1 FROM learning_activities WHERE creator_user_id = ? AND description LIKE ?",
             (tid, "Datos semilla AVI%"),
@@ -2900,7 +3256,8 @@ def auth_seed_teacher_panel_demo_data(conn, now: float) -> int:
                 )
 
         insert_activity("Saludos en contexto escolar", "saludos", "quiz", "active", 6.0, [(g1, 4.0)])
-        insert_activity("Familia y parentesco", "familia", "completar", "active", 9.0, [(g1, 7.0)])
+        insert_activity("Presentación: familia y personas", "familia_personas", "presentacion", "active", 8.0, [(g1, 6.0)])
+        insert_activity("Familia y parentesco", "familia_personas", "completar", "active", 9.0, [(g1, 7.0)])
         insert_activity("Numeros del 1 al 20", "numeros", "quiz", "draft", 14.0, [])
         insert_activity("Frutas de nuestra tierra", "comida", "imagen", "active", 4.0, [(g2, 3.0)])
         insert_activity("Expresiones de cortesia", "expresiones", "leccion", "scheduled", 11.0, [(g2, 10.0)])
@@ -3290,6 +3647,9 @@ def auth_handle_login(handler, data: dict):
                 return {"error": "Esta cuenta usa solo Google. Usa Continuar con Google."}, 401
             if not auth_verify_password(password, row["password_hash"]):
                 return {"error": "La contraseña es inválida."}, 401
+            now_login = time.time()
+            if row["role"] == "docente":
+                auth_sync_teacher_workspace_data(conn, int(row["id"]), now_login)
             tok = auth_create_session(conn, row["id"])
         finally:
             conn.close()
@@ -3483,6 +3843,173 @@ def auth_handle_reset_password(handler, data: dict):
 
 ENGINE = CorpusEngine(CORPUS_PATH)
 
+VALID_EDUCATION_LEVELS = frozenset(
+    {"Preescolar", "Primaria", "Secundaria", "Bachillerato", "Universidad", "General", "Media"}
+)
+SCHOOL_GRADES_K12 = frozenset(
+    {"Transición", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}
+)
+UNIVERSITY_GRADE_VALUES = frozenset(
+    {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Posgrado", "—", "N/A", "General"}
+)
+
+
+def account_update_profile(conn, user_id: int, data: dict) -> tuple[dict, int]:
+    display_name = (data.get("display_name") or "").strip()
+    email = normalize_email(data.get("email") or "")
+    if display_name and len(display_name) < 2:
+        return {"error": "El nombre debe tener al menos 2 caracteres."}, 400
+    if email and "@" not in email:
+        return {"error": "Correo invalido."}, 400
+    if email:
+        clash = conn.execute(
+            "SELECT id FROM users WHERE email = ? AND id != ?",
+            (email, user_id),
+        ).fetchone()
+        if clash:
+            return {"error": "Ese correo ya esta en uso."}, 409
+    sets = []
+    params: list = []
+    if display_name:
+        sets.append("display_name = ?")
+        params.append(display_name)
+    if email:
+        sets.append("email = ?")
+        params.append(email)
+    if not sets:
+        return {"error": "Escribe el nombre o el correo que deseas guardar."}, 400
+    params.append(user_id)
+    conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
+    conn.commit()
+    row = conn.execute(
+        "SELECT id, email, display_name, role FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    return {"ok": True, "user": auth_row_to_user(row), "message": "Perfil actualizado correctamente."}, 200
+
+
+def _parse_email_list(raw) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = re.split(r"[\s,;]+", raw.strip())
+    elif isinstance(raw, list):
+        parts = [str(x) for x in raw]
+    else:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        email = normalize_email(part)
+        if email and "@" in email and email not in seen:
+            seen.add(email)
+            out.append(email)
+    return out
+
+
+def _teacher_assign_students_to_group(conn, teacher_id: int, gid: int, student_ids: list) -> tuple[dict, int]:
+    """Asigna estudiantes al grupo del docente (lista o correos). Permite mover entre grupos del mismo docente."""
+    g = conn.execute(
+        "SELECT id, name FROM teacher_groups WHERE id = ? AND teacher_user_id = ?",
+        (gid, teacher_id),
+    ).fetchone()
+    if not g:
+        return {"error": "Grupo no encontrado."}, 404
+
+    unique_sids: list[int] = []
+    seen_sid: set[int] = set()
+    for sid in student_ids:
+        try:
+            sid_int = int(sid)
+        except (TypeError, ValueError):
+            continue
+        if sid_int not in seen_sid:
+            seen_sid.add(sid_int)
+            unique_sids.append(sid_int)
+
+    if not unique_sids:
+        return {"error": "Debe seleccionar al menos un estudiante o escribir un correo válido."}, 400
+
+    now = time.time()
+    added = 0
+    moved = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for sid in unique_sids:
+        stu = conn.execute(
+            "SELECT id, role, email, display_name FROM users WHERE id = ? AND COALESCE(active, 1) = 1",
+            (sid,),
+        ).fetchone()
+        if not stu or stu["role"] != "estudiante":
+            errors.append(f"La cuenta #{sid} no es un estudiante activo.")
+            continue
+        member = conn.execute(
+            """
+            SELECT m.group_id, tg.teacher_user_id, tg.name
+            FROM group_members m
+            JOIN teacher_groups tg ON tg.id = m.group_id
+            WHERE m.student_user_id = ?
+            """,
+            (sid,),
+        ).fetchone()
+        if member and int(member["group_id"]) == gid:
+            skipped += 1
+            continue
+        if member:
+            if int(member["teacher_user_id"]) != teacher_id:
+                gname = member["name"] or "otro grupo"
+                errors.append(
+                    f"{stu['email']}: ya está en «{gname}» (otro docente). Quítalo allí o contacta al administrador."
+                )
+                continue
+            conn.execute("DELETE FROM group_members WHERE student_user_id = ?", (sid,))
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO group_members (group_id, student_user_id, assigned_at)
+                VALUES (?, ?, ?)
+                """,
+                (gid, sid, now),
+            )
+            moved += 1
+            continue
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO group_members (group_id, student_user_id, assigned_at)
+            VALUES (?, ?, ?)
+            """,
+            (gid, sid, now),
+        )
+        added += 1
+
+    conn.commit()
+    members = scalar_from_row(
+        conn.execute("SELECT COUNT(*) FROM group_members WHERE group_id = ?", (gid,)).fetchone()
+    )
+    if added + moved == 0 and skipped == 0:
+        msg = errors[0] if errors else "No se pudo asignar ningún estudiante."
+        return {"error": msg, "errors": errors}, 400
+
+    parts: list[str] = []
+    if added:
+        parts.append(f"{added} añadido(s)")
+    if moved:
+        parts.append(f"{moved} movido(s) desde otro grupo tuyo")
+    if skipped:
+        parts.append(f"{skipped} ya en el grupo")
+    message = "¡Asignación correcta! " + ", ".join(parts) + "."
+    out: dict = {
+        "message": message,
+        "added": added,
+        "moved": moved,
+        "skipped": skipped,
+        "members": members,
+    }
+    if errors:
+        out["errors"] = errors
+        out["warning"] = "Algunos estudiantes no se asignaron; revisa los detalles."
+    return out, 200
+
 
 def teacher_handle_post(handler, route: str, data: dict):
     user, err, st_code = api_require_user(handler, {"docente"})
@@ -3492,6 +4019,11 @@ def teacher_handle_post(handler, route: str, data: dict):
     with _AUTH_DB_LOCK:
         conn = auth_connect()
         try:
+            if route == "/api/teacher/sync-demo-data":
+                now_s = time.time()
+                result = auth_sync_teacher_workspace_data(conn, teacher_id, now_s)
+                conn.commit()
+                return {"ok": True, **result}, 200
             if route == "/api/teacher/groups":
                 name = (data.get("name") or "").strip()
                 if not name:
@@ -3505,22 +4037,32 @@ def teacher_handle_post(handler, route: str, data: dict):
                 ).fetchone()
                 if dup:
                     return {"error": "Ya existe un grupo con ese nombre. Elige otro nombre."}, 409
-                valid_grades = {
-                    "Transición", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
-                }
                 grade = (data.get("grade") or "").strip()
-                if grade and grade not in valid_grades:
-                    return {"error": "Grado inválido. Use Transición o grados del 1 al 11."}, 400
                 edu = (data.get("education_level") or "").strip()
+                if edu == "Media":
+                    edu = "Bachillerato"
                 if not edu:
                     if grade in ("Transición",):
                         edu = "Preescolar"
                     elif grade in ("1", "2", "3", "4", "5"):
                         edu = "Primaria"
-                    elif grade in ("6", "7", "8", "9", "10", "11"):
+                    elif grade in ("6", "7", "8", "9"):
                         edu = "Secundaria"
+                    elif grade in ("10", "11"):
+                        edu = "Bachillerato"
                     else:
                         edu = "General"
+                if edu not in VALID_EDUCATION_LEVELS:
+                    return {
+                        "error": "Nivel educativo invalido. Use Preescolar, Primaria, Secundaria, Bachillerato o Universidad.",
+                    }, 400
+                if edu == "Universidad":
+                    if not grade:
+                        grade = "1"
+                    elif len(grade) > 48:
+                        return {"error": "Grado o ciclo universitario demasiado largo."}, 400
+                elif grade and grade not in SCHOOL_GRADES_K12:
+                    return {"error": "Grado invalido. Use Transicion o grados del 1 al 11."}, 400
                 grade_id = int(data.get("grade_id", 0) or 0)
                 diff = (data.get("difficulty_default") or "intermedio").strip()
                 if grade_id > 0:
@@ -3547,56 +4089,52 @@ def teacher_handle_post(handler, route: str, data: dict):
                 }, 201
             if route == "/api/teacher/group-assign":
                 gid = int(data.get("group_id", 0) or 0)
-                sids = data.get("student_ids") or []
-                if not isinstance(sids, list) or not sids:
-                    return {"error": "Debe seleccionar al menos un estudiante"}, 400
-                g = conn.execute(
-                    "SELECT id FROM teacher_groups WHERE id = ? AND teacher_user_id = ?",
-                    (gid, teacher_id),
-                ).fetchone()
-                if not g:
-                    return {"error": "Grupo no encontrado."}, 404
-                now = time.time()
-                for sid in sids:
-                    try:
-                        sid = int(sid)
-                    except (TypeError, ValueError):
-                        continue
-                    stu = conn.execute(
-                        "SELECT id, role FROM users WHERE id = ? AND COALESCE(active, 1) = 1",
-                        (sid,),
-                    ).fetchone()
-                    if not stu or stu["role"] != "estudiante":
-                        continue
-                    other = conn.execute(
-                        "SELECT group_id FROM group_members WHERE student_user_id = ?",
-                        (sid,),
-                    ).fetchone()
-                    if other:
-                        return {"error": "El estudiante ya está asignado a un grupo"}, 409
-                    conn.execute(
+                if not gid:
+                    return {"error": "Grupo requerido."}, 400
+                sids: list = []
+                raw_ids = data.get("student_ids")
+                if isinstance(raw_ids, list):
+                    sids.extend(raw_ids)
+                emails = _parse_email_list(data.get("emails"))
+                email_errors: list[str] = []
+                for em in emails:
+                    row = conn.execute(
                         """
-                        INSERT OR IGNORE INTO group_members (group_id, student_user_id, assigned_at)
-                        VALUES (?, ?, ?)
+                        SELECT id, role FROM users
+                        WHERE email = ? AND COALESCE(active, 1) = 1
                         """,
-                        (gid, sid, now),
-                    )
-                conn.commit()
-                chk = scalar_from_row(
-                    conn.execute(
-                        "SELECT COUNT(*) FROM group_members WHERE group_id = ?",
-                        (gid,),
+                        (em,),
                     ).fetchone()
-                )
-                if chk == 0:
-                    return {"error": "Debe seleccionar al menos un estudiante"}, 400
-                return {"message": "¡Asignación correcta!", "members": chk}, 200
+                    if not row:
+                        email_errors.append(f"No hay cuenta con el correo {em}. El estudiante debe registrarse primero.")
+                        continue
+                    if row["role"] != "estudiante":
+                        email_errors.append(f"{em} no es una cuenta de estudiante.")
+                        continue
+                    sids.append(int(row["id"]))
+                if not sids:
+                    if email_errors:
+                        return {"error": email_errors[0], "errors": email_errors}, 400
+                    return {"error": "Selecciona estudiantes de la lista o escribe al menos un correo."}, 400
+                payload, code = _teacher_assign_students_to_group(conn, teacher_id, gid, sids)
+                if email_errors:
+                    if code >= 400:
+                        err_list = list(email_errors)
+                        if isinstance(payload.get("errors"), list):
+                            err_list = err_list + payload["errors"]
+                        return {"error": err_list[0], "errors": err_list}, 400
+                    payload.setdefault("errors", []).extend(email_errors)
+                    payload["warning"] = (
+                        payload.get("warning")
+                        or "Asignación parcial: revisa los correos que no se encontraron."
+                    )
+                return payload, code
             if route == "/api/teacher/activities":
                 title = (data.get("title") or "").strip()
                 description = (data.get("description") or "").strip()
                 category = normalize_text(data.get("category") or "comida")
                 difficulty = (data.get("difficulty") or "intermedio").strip()
-                mode = (data.get("mode") or "quiz").strip()
+                mode_raw = (data.get("mode") or "quiz").strip()
                 grade_id = int(data.get("grade_id", 0) or 0)
                 group_id = int(data.get("group_id", 0) or 0)
                 student_ids = data.get("student_ids") or []
@@ -3604,13 +4142,10 @@ def teacher_handle_post(handler, route: str, data: dict):
                     return {"error": "Titulo requerido."}, 400
                 if not description:
                     description = title
-                raw_st = normalize_text(data.get("status") or data.get("workflow_status") or "active").lower()
-                if raw_st in ("borrador", "draft"):
-                    wf_status = "draft"
-                elif raw_st in ("programada", "scheduled"):
-                    wf_status = "scheduled"
-                else:
-                    wf_status = "active"
+                wf_status = _teacher_wf_status_from_payload(
+                    data.get("status") or data.get("workflow_status") or "active"
+                )
+                mode = _teacher_mode_from_payload(mode_raw)
                 if grade_id:
                     g = conn.execute("SELECT id FROM grades WHERE id = ? AND active = 1", (grade_id,)).fetchone()
                     if not g:
@@ -3772,14 +4307,10 @@ def teacher_handle_post(handler, route: str, data: dict):
                 description = (data.get("description") or "").strip() or title
                 category = normalize_text(data.get("category") or "comida")
                 difficulty = (data.get("difficulty") or "intermedio").strip()
-                mode = (data.get("mode") or "quiz").strip()
-                raw_st = normalize_text(data.get("status") or data.get("workflow_status") or "active").lower()
-                if raw_st in ("borrador", "draft"):
-                    wf_status = "draft"
-                elif raw_st in ("programada", "scheduled"):
-                    wf_status = "scheduled"
-                else:
-                    wf_status = "active"
+                mode = _teacher_mode_from_payload(data.get("mode") or "quiz")
+                wf_status = _teacher_wf_status_from_payload(
+                    data.get("status") or data.get("workflow_status") or "active"
+                )
                 now = time.time()
                 conn.execute(
                     """
@@ -3791,6 +4322,8 @@ def teacher_handle_post(handler, route: str, data: dict):
                 )
                 conn.commit()
                 return {"ok": True, "activity_id": aid}, 200
+            if route == "/api/teacher/profile":
+                return account_update_profile(conn, teacher_id, data)
             if route == "/api/teacher/group-unassign":
                 gid = int(data.get("group_id", 0) or 0)
                 sid = int(data.get("student_id", 0) or 0)
@@ -3827,9 +4360,21 @@ def teacher_handle_get(handler, route: str, parsed):
         return err, st_code
     teacher_id = user["id"]
     if route == "/api/teacher/groups":
+        now_g = time.time()
+        cutoff_g = now_g - 30 * 86400
         with _AUTH_DB_LOCK:
             conn = auth_connect()
             try:
+                auth_ensure_panel_students_exist(conn, now_g)
+                urow = conn.execute("SELECT email FROM users WHERE id = ?", (teacher_id,)).fetchone()
+                if urow and auth_is_demo_teacher_email(urow["email"]):
+                    auth_sync_teacher_workspace_data(conn, teacher_id, now_g)
+                else:
+                    auth_ensure_teacher_groups_have_students(
+                        conn, teacher_id, now_g, min_per_group=2
+                    )
+                conn.commit()
+                metrics = {m["id"]: m for m in _teacher_group_metrics(conn, teacher_id, cutoff_g)}
                 rows = conn.execute(
                     """
                     SELECT g.id, g.name, g.education_level, g.grade, g.grade_id, g.difficulty_default,
@@ -3840,24 +4385,33 @@ def teacher_handle_get(handler, route: str, parsed):
                     """,
                     (teacher_id,),
                 ).fetchall()
-                groups = [
-                    {
-                        "id": r["id"],
-                        "name": r["name"],
-                        "education_level": r["education_level"],
-                        "grade": r["grade"],
-                        "grade_id": r["grade_id"] if "grade_id" in r.keys() else None,
-                        "difficulty_default": r["difficulty_default"],
-                        "students": r["n_students"],
-                    }
-                    for r in rows
-                ]
+                groups = []
+                for r in rows:
+                    gid = int(r["id"])
+                    m = metrics.get(gid, {})
+                    groups.append(
+                        {
+                            "id": gid,
+                            "name": r["name"],
+                            "education_level": r["education_level"],
+                            "grade": r["grade"],
+                            "grade_id": r["grade_id"] if "grade_id" in r.keys() else None,
+                            "difficulty_default": r["difficulty_default"],
+                            "students": int(m.get("students") or r["n_students"] or 0),
+                            "assignments_window": int(m.get("assignments_window") or 0),
+                            "bar_pct": int(m.get("bar_pct") or 0),
+                        }
+                    )
             finally:
                 conn.close()
         return {"groups": groups}, 200
     if route == "/api/teacher/students":
         q = (parse_qs(parsed.query).get("q") or [""])[0].strip().lower()
         like = f"%{q}%" if q else "%"
+        try:
+            focus_gid = int((parse_qs(parsed.query).get("group_id") or ["0"])[0] or 0)
+        except (TypeError, ValueError):
+            focus_gid = 0
         with _AUTH_DB_LOCK:
             conn = auth_connect()
             try:
@@ -3865,16 +4419,24 @@ def teacher_handle_get(handler, route: str, parsed):
                     """
                     SELECT u.id, u.email, u.display_name,
                            m.group_id AS member_group_id,
-                           tg.name AS member_group_name
+                           tg.name AS member_group_name,
+                           tg.teacher_user_id AS member_teacher_id
                     FROM users u
                     LEFT JOIN group_members m ON m.student_user_id = u.id
                     LEFT JOIN teacher_groups tg ON tg.id = m.group_id
                     WHERE u.role = 'estudiante' AND COALESCE(u.active, 1) = 1
                       AND (LOWER(u.display_name) LIKE ? OR LOWER(u.email) LIKE ?)
                       AND (m.group_id IS NULL OR tg.teacher_user_id = ?)
-                    ORDER BY u.display_name LIMIT 80
+                    ORDER BY
+                      CASE
+                        WHEN ? > 0 AND m.group_id = ? THEN 0
+                        WHEN m.group_id IS NULL THEN 1
+                        ELSE 2
+                      END,
+                      u.display_name
+                    LIMIT 120
                     """,
-                    (like, like, teacher_id),
+                    (like, like, teacher_id, focus_gid, focus_gid),
                 ).fetchall()
                 students = [
                     {
@@ -3958,10 +4520,20 @@ def teacher_handle_get(handler, route: str, parsed):
             days = 30
         if days not in (7, 30, 90):
             days = 30
-        cutoff = time.time() - days * 86400
+        now_r = time.time()
+        cutoff = now_r - days * 86400
         with _AUTH_DB_LOCK:
             conn = auth_connect()
             try:
+                auth_ensure_panel_students_exist(conn, now_r)
+                urow = conn.execute("SELECT email FROM users WHERE id = ?", (teacher_id,)).fetchone()
+                if urow and auth_is_demo_teacher_email(urow["email"]):
+                    auth_sync_teacher_workspace_data(conn, teacher_id, now_r)
+                else:
+                    auth_ensure_teacher_groups_have_students(
+                        conn, teacher_id, now_r, min_per_group=2
+                    )
+                conn.commit()
                 n_groups = int(
                     scalar_from_row(
                         conn.execute(
@@ -4021,33 +4593,25 @@ def teacher_handle_get(handler, route: str, parsed):
                     )
                     or 0
                 )
-                g_rows = conn.execute(
-                    """
-                    SELECT g.id, g.name,
-                           (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS students,
-                           (SELECT COUNT(*) FROM activity_assignments aa
-                            WHERE aa.group_id = g.id AND aa.assigned_at >= ?) AS assigns_w
-                    FROM teacher_groups g
-                    WHERE g.teacher_user_id = ?
-                    ORDER BY g.created_at DESC
-                    LIMIT 50
-                    """,
-                    (cutoff, teacher_id),
-                ).fetchall()
-                max_aw = max((int(r["assigns_w"] or 0) for r in g_rows), default=0)
-                group_bars = []
-                for r in g_rows:
-                    aw = int(r["assigns_w"] or 0)
-                    bar_pct = min(100, round(100 * aw / max_aw)) if max_aw else 0
-                    group_bars.append(
-                        {
-                            "id": r["id"],
-                            "name": r["name"],
-                            "students": int(r["students"] or 0),
-                            "assignments_window": aw,
-                            "bar_pct": bar_pct,
-                        }
+                metrics = _teacher_group_metrics(conn, teacher_id, cutoff)[:50]
+                group_bars = metrics
+                bar_pcts: list[int] = [
+                    int(m["bar_pct"]) for m in metrics if int(m.get("students") or 0) > 0
+                ]
+                avg_progress_pct = round(sum(bar_pcts) / len(bar_pcts)) if bar_pcts else 0
+                pending_activities_count = int(
+                    scalar_from_row(
+                        conn.execute(
+                            """
+                            SELECT COUNT(*) FROM learning_activities
+                            WHERE creator_user_id = ? AND creator_role = 'docente'
+                              AND status IN ('draft', 'scheduled')
+                            """,
+                            (teacher_id,),
+                        ).fetchone()
                     )
+                    or 0
+                )
                 recent_rows = conn.execute(
                     """
                     SELECT a.id, a.title, a.mode, a.created_at,
@@ -4136,7 +4700,11 @@ def teacher_handle_get(handler, route: str, parsed):
                 ]
                 stud_rows = conn.execute(
                     """
-                    SELECT u.id AS student_id, u.display_name, u.email, g.name AS group_name
+                    SELECT u.id AS student_id, u.display_name, u.email,
+                           g.id AS group_id, g.name AS group_name,
+                           (SELECT COUNT(*) FROM group_members m2 WHERE m2.group_id = g.id) AS group_students,
+                           (SELECT COUNT(*) FROM activity_assignments aa
+                            WHERE aa.group_id = g.id AND aa.assigned_at >= ?) AS assigns_w
                     FROM group_members m
                     JOIN users u ON u.id = m.student_user_id
                     JOIN teacher_groups g ON g.id = m.group_id
@@ -4144,14 +4712,20 @@ def teacher_handle_get(handler, route: str, parsed):
                     ORDER BY g.name, u.display_name
                     LIMIT 500
                     """,
-                    (teacher_id,),
+                    (cutoff, teacher_id),
                 ).fetchall()
                 students_tab = [
                     {
                         "student_id": r["student_id"],
                         "display_name": r["display_name"],
                         "email": r["email"],
+                        "group_id": r["group_id"],
                         "group_name": r["group_name"],
+                        "bar_pct": _student_engagement_pct(
+                            int(r["group_students"] or 0),
+                            int(r["assigns_w"] or 0),
+                            int(r["student_id"]),
+                        ),
                     }
                     for r in stud_rows
                 ]
@@ -4165,6 +4739,8 @@ def teacher_handle_get(handler, route: str, parsed):
                 "activities_created_window": acts_created,
                 "group_assignments_window": assigns_win,
                 "active_activities_all": n_active_all,
+                "avg_progress_pct": avg_progress_pct,
+                "pending_activities_count": pending_activities_count,
             },
             "group_bars": group_bars,
             "recent_activities": recent_activities,
@@ -4173,9 +4749,19 @@ def teacher_handle_get(handler, route: str, parsed):
         }, 200
     if route == "/api/teacher/group-report":
         gid = int(parse_qs(parsed.query).get("group_id", ["0"])[0] or 0)
+        now_gr = time.time()
         with _AUTH_DB_LOCK:
             conn = auth_connect()
             try:
+                auth_ensure_panel_students_exist(conn, now_gr)
+                urow = conn.execute("SELECT email FROM users WHERE id = ?", (teacher_id,)).fetchone()
+                if urow and auth_is_demo_teacher_email(urow["email"]):
+                    auth_sync_teacher_workspace_data(conn, teacher_id, now_gr)
+                else:
+                    auth_ensure_teacher_groups_have_students(
+                        conn, teacher_id, now_gr, min_per_group=2
+                    )
+                conn.commit()
                 g = conn.execute(
                     "SELECT id, name FROM teacher_groups WHERE id = ? AND teacher_user_id = ?",
                     (gid, teacher_id),
@@ -4190,7 +4776,31 @@ def teacher_handle_get(handler, route: str, parsed):
                     """,
                     (gid,),
                 ).fetchall()
-                roster = [{"id": r["id"], "display_name": r["display_name"], "email": r["email"]} for r in members]
+                n_students = len(members)
+                assigns_w = int(
+                    scalar_from_row(
+                        conn.execute(
+                            """
+                            SELECT COUNT(*) FROM activity_assignments aa
+                            WHERE aa.group_id = ? AND aa.assigned_at >= ?
+                            """,
+                            (gid, time.time() - 30 * 86400),
+                        ).fetchone()
+                    )
+                    or 0
+                )
+                group_bar_pct = _group_engagement_pct(n_students, assigns_w)
+                roster = []
+                for r in members:
+                    sid = int(r["id"])
+                    roster.append(
+                        {
+                            "id": sid,
+                            "display_name": r["display_name"],
+                            "email": r["email"],
+                            "bar_pct": _student_engagement_pct(n_students, assigns_w, sid),
+                        }
+                    )
                 n_act = scalar_from_row(
                     conn.execute(
                         """
@@ -4206,12 +4816,13 @@ def teacher_handle_get(handler, route: str, parsed):
             finally:
                 conn.close()
         return {
-            "group": {"id": int(g["id"]), "name": g["name"]},
+            "group": {"id": int(g["id"]), "name": g["name"], "bar_pct": group_bar_pct},
             "students": roster,
             "summary": {
                 "total_estudiantes": len(roster),
                 "actividades_asignadas_grupo": int(n_act or 0),
                 "promedio_actividades_por_estudiante": avg_txt,
+                "avance_grupo_pct": group_bar_pct,
                 "nota": "Indicadores derivados de asignaciones registradas en AVI.",
             },
         }, 200
@@ -5075,8 +5686,11 @@ def user_app_state_put_payload(conn, user_id: int, namespace: str, payload: dict
     )
 
 
+_USER_SETTINGS_ROLES = frozenset({"estudiante", "docente"})
+
+
 def student_handle_get(handler, route: str, parsed):
-    user, err, st_code = api_require_user(handler, {"estudiante"})
+    user, err, st_code = api_require_user(handler, _USER_SETTINGS_ROLES)
     if err:
         return err, st_code
     student_id = user["id"]
@@ -5218,7 +5832,7 @@ def student_handle_get(handler, route: str, parsed):
 
 
 def student_handle_post(handler, route: str, data: dict):
-    user, err, st_code = api_require_user(handler, {"estudiante"})
+    user, err, st_code = api_require_user(handler, _USER_SETTINGS_ROLES)
     if err:
         return err, st_code
     student_id = user["id"]
@@ -5314,7 +5928,22 @@ def student_handle_post(handler, route: str, data: dict):
                         tuple(extra_vals),
                     )
                 conn.commit()
-                return {"ok": True}, 200
+                row = conn.execute(
+                    """
+                    SELECT notif_daily, notif_content, notif_streak, notif_tips
+                    FROM student_settings WHERE student_user_id = ?
+                    """,
+                    (student_id,),
+                ).fetchone()
+                notif_out = {
+                    "daily": bool(row["notif_daily"]) if row else bool(notif_daily),
+                    "content": bool(row["notif_content"]) if row else bool(notif_content),
+                    "streak": bool(row["notif_streak"]) if row else bool(notif_streak),
+                    "tips": bool(row["notif_tips"]) if row else bool(notif_tips),
+                }
+                return {"ok": True, "message": "Preferencias guardadas.", "notifications": notif_out}, 200
+            if route == "/api/student/profile":
+                return account_update_profile(conn, student_id, data)
             if route == "/api/student/change-password":
                 new_password = str(payload.get("new_password") or "")
                 current_password = str(payload.get("current_password") or "")
@@ -5547,9 +6176,28 @@ class AVIHandler(BaseHTTPRequestHandler):
         if route == "/api/student/activities":
             self.send_error(405, "Use GET")
             return
-        if route in ("/api/student/settings", "/api/student/change-password", "/api/student/delete-account"):
+        if route in (
+            "/api/student/settings",
+            "/api/student/profile",
+            "/api/student/change-password",
+            "/api/student/delete-account",
+        ):
             payload, status = student_handle_post(self, route, data)
             self._send_json(payload, status)
+            return
+
+        if route == "/api/account/profile":
+            user, err, st_code = api_require_user(self, AUTH_ROLES)
+            if err:
+                self._send_json(err, st_code)
+                return
+            with _AUTH_DB_LOCK:
+                conn = auth_connect()
+                try:
+                    payload, status = account_update_profile(conn, int(user["id"]), data)
+                    self._send_json(payload, status)
+                finally:
+                    conn.close()
             return
 
         self.send_error(404, "Route not found")

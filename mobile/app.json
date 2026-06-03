@@ -2,7 +2,7 @@
   "expo": {
     "name": "AVI Nasa Yuwe",
     "slug": "avi-nasa-yuwe",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
@@ -21,8 +21,8 @@
       ]
     },
     "extra": {
-      "apiBase": "http://192.168.43.243:8090",
-      "webAppUrl": "http://192.168.43.243:8090"
+      "apiBase": "https://yuwe-ai.web.app",
+      "webAppUrl": "https://yuwe-ai.web.app/?shell=expo&v=20260603"
     }
   }
 }
