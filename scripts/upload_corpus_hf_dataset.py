@@ -51,7 +51,14 @@ def main() -> int:
 
     token = (os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or "").strip()
     if not token:
-        print("Falta HF_TOKEN", file=sys.stderr)
+        try:
+            from huggingface_hub.utils import get_token
+
+            token = (get_token() or "").strip()
+        except Exception:
+            token = ""
+    if not token:
+        print("Falta HF_TOKEN (env o huggingface-cli login)", file=sys.stderr)
         return 1
 
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
